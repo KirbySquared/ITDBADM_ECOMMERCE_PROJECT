@@ -2,35 +2,39 @@ import './Footer.css'
 
 function Footer() {
   return (
-    <footer className="footer">
-      <div className="container">
-        <div className="footer-content">
-          <div className="footer-section">
-            <h3>GameStore</h3>
-            <p>Your one-stop shop for gaming products and accessories.</p>
+    <footer className="bg-dark text-light mt-auto">
+      <div className="container py-5">
+        <div className="row g-4">
+          <div className="col-lg-4 col-md-6">
+            <h5 className="text-white mb-3">GameStore</h5>
+            <p className="text-light">Your one-stop shop for gaming products and accessories.</p>
           </div>
           
-          <div className="footer-section">
-            <h4>Quick Links</h4>
-            <ul>
-              <li><a href="/products">Products</a></li>
-              <li><a href="/cart">Cart</a></li>
-              <li><a href="/login">Login</a></li>
+          <div className="col-lg-2 col-md-6">
+            <h6 className="text-white mb-3">Quick Links</h6>
+            <ul className="list-unstyled">
+              <li className="mb-2"><a href="/products" className="text-light text-decoration-none">Products</a></li>
+              <li className="mb-2"><a href="/cart" className="text-light text-decoration-none">Cart</a></li>
+              <li className="mb-2"><a href="/login" className="text-light text-decoration-none">Login</a></li>
             </ul>
           </div>
           
-          <div className="footer-section">
-            <h4>Support</h4>
-            <ul>
-              <li><a href="/contact">Contact Us</a></li>
-              <li><a href="/shipping">Shipping Info</a></li>
-              <li><a href="/returns">Returns</a></li>
+          <div className="col-lg-2 col-md-6">
+            <h6 className="text-white mb-3">Support</h6>
+            <ul className="list-unstyled">
+              <li className="mb-2"><a href="/contact" className="text-light text-decoration-none">Contact Us</a></li>
+              <li className="mb-2"><a href="/shipping" className="text-light text-decoration-none">Shipping Info</a></li>
+              <li className="mb-2"><a href="/returns" className="text-light text-decoration-none">Returns</a></li>
             </ul>
           </div>
         </div>
         
-        <div className="footer-bottom">
-          <p>&copy; 2024 GameStore. All rights reserved.</p>
+        <hr className="my-4 border-secondary" />
+        
+        <div className="row">
+          <div className="col-12 text-center">
+            <p className="text-light mb-0">&copy; 2024 GameStore. All rights reserved.</p>
+          </div>
         </div>
       </div>
     </footer>

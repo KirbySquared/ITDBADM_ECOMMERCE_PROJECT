@@ -39,15 +39,22 @@ function Cart() {
 
   if (cartItems.length === 0) {
     return (
-      <div className="cart">
+      <div className="py-5">
         <div className="container">
-          <h1>Shopping Cart</h1>
-          <div className="empty-cart">
-            <h2>Your cart is empty</h2>
-            <p>Add some products to get started!</p>
-            <Link to="/products" className="btn btn-primary">
-              Continue Shopping
-            </Link>
+          <div className="row justify-content-center">
+            <div className="col-md-8 text-center">
+              <h1 className="display-4 fw-bold mb-4">Shopping Cart</h1>
+              <div className="card">
+                <div className="card-body py-5">
+                  <i className="bi bi-cart-x text-muted" style={{fontSize: '4rem'}}></i>
+                  <h2 className="mt-3 mb-3">Your cart is empty</h2>
+                  <p className="text-muted mb-4">Add some products to get started!</p>
+                  <Link to="/products" className="btn btn-primary btn-lg">
+                    Continue Shopping
+                  </Link>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -55,65 +62,95 @@ function Cart() {
   }
 
   return (
-    <div className="cart">
+    <div className="py-5">
       <div className="container">
-        <h1>Shopping Cart</h1>
+        <div className="row">
+          <div className="col-12 text-center mb-5">
+            <h1 className="display-4 fw-bold">Shopping Cart</h1>
+          </div>
+        </div>
         
-        <div className="cart-content">
-          <div className="cart-items">
-            {cartItems.map(item => (
-              <div key={item.id} className="cart-item">
-                <div className="item-image">
-                  <img src={item.image} alt={item.name} />
-                </div>
-                
-                <div className="item-info">
-                  <h3>{item.name}</h3>
-                  <p className="price">${item.price}</p>
-                </div>
-                
-                <div className="item-quantity">
-                  <button onClick={() => updateQuantity(item.id, item.quantity - 1)}>
-                    -
-                  </button>
-                  <span>{item.quantity}</span>
-                  <button onClick={() => updateQuantity(item.id, item.quantity + 1)}>
-                    +
-                  </button>
-                </div>
-                
-                <div className="item-total">
-                  ${(item.price * item.quantity).toFixed(2)}
-                </div>
-                
-                <button 
-                  className="remove-btn"
-                  onClick={() => removeItem(item.id)}
-                >
-                  Remove
-                </button>
+        <div className="row g-4">
+          <div className="col-lg-8">
+            <div className="card">
+              <div className="card-body">
+                {cartItems.map(item => (
+                  <div key={item.id} className="row align-items-center py-3 border-bottom">
+                    <div className="col-md-2">
+                      <div className="bg-light rounded" style={{height: '80px', width: '80px'}}>
+                        <div className="d-flex align-items-center justify-content-center h-100">
+                          <i className="bi bi-image text-muted"></i>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="col-md-4">
+                      <h5 className="mb-1">{item.name}</h5>
+                      <p className="text-primary fw-bold mb-0">${item.price}</p>
+                    </div>
+                    
+                    <div className="col-md-3">
+                      <div className="d-flex align-items-center gap-2">
+                        <button 
+                          className="btn btn-outline-secondary btn-sm"
+                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                        >
+                          -
+                        </button>
+                        <span className="fw-bold">{item.quantity}</span>
+                        <button 
+                          className="btn btn-outline-secondary btn-sm"
+                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="col-md-2">
+                      <p className="fw-bold mb-0">${(item.price * item.quantity).toFixed(2)}</p>
+                    </div>
+                    
+                    <div className="col-md-1">
+                      <button 
+                        className="btn btn-outline-danger btn-sm"
+                        onClick={() => removeItem(item.id)}
+                      >
+                        <i className="bi bi-trash"></i>
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
           
-          <div className="cart-summary">
-            <h3>Order Summary</h3>
-            <div className="summary-line">
-              <span>Subtotal:</span>
-              <span>${getTotalPrice().toFixed(2)}</span>
+          <div className="col-lg-4">
+            <div className="card">
+              <div className="card-body">
+                <h5 className="card-title mb-4">Order Summary</h5>
+                
+                <div className="d-flex justify-content-between mb-2">
+                  <span>Subtotal:</span>
+                  <span>${getTotalPrice().toFixed(2)}</span>
+                </div>
+                <div className="d-flex justify-content-between mb-2">
+                  <span>Shipping:</span>
+                  <span className="text-success">Free</span>
+                </div>
+                <hr />
+                <div className="d-flex justify-content-between mb-4">
+                  <span className="fw-bold fs-5">Total:</span>
+                  <span className="fw-bold fs-5">${getTotalPrice().toFixed(2)}</span>
+                </div>
+                
+                <div className="d-grid">
+                  <Link to="/checkout" className="btn btn-primary btn-lg">
+                    Proceed to Checkout
+                  </Link>
+                </div>
+              </div>
             </div>
-            <div className="summary-line">
-              <span>Shipping:</span>
-              <span>Free</span>
-            </div>
-            <div className="summary-line total">
-              <span>Total:</span>
-              <span>${getTotalPrice().toFixed(2)}</span>
-            </div>
-            
-            <Link to="/checkout" className="btn btn-primary btn-large">
-              Proceed to Checkout
-            </Link>
           </div>
         </div>
       </div>
