@@ -17,6 +17,12 @@
    - Admin Panel: http://localhost:5173/admin/login
    - Backend API: http://localhost:8000
 
+### Cleanup Instructions
+- **Normal shutdown**: Let React frontend exit naturally → Close SSH tunnel window manually
+- **Ctrl+C termination**: Press Ctrl+C → Close SSH tunnel window manually
+- **Window closure**: Close the CMD window → Close SSH tunnel window manually
+- **Manual SSH cleanup**: Simply close the SSH tunnel window when done with development
+
 ## 📁 Project Structure
 
 ```
