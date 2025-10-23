@@ -33,6 +33,10 @@ import Register from '../pages/Register'
 import Profile from '../pages/Profile'
 import AdminLogin from '../pages/AdminLogin'
 import AdminDashboard from '../pages/AdminDashboard'
+import AdminProducts from '../pages/AdminProducts'
+import AdminOrders from '../pages/AdminOrders'
+import AdminUsers from '../pages/AdminUsers'
+import AdminCategories from '../pages/AdminCategories'
 import AdminRoute from '../components/AdminRoute'
 
 function AppRoutes() {
@@ -56,40 +60,28 @@ function AppRoutes() {
         </AdminRoute>
       } />
       
-      {/* Future Admin Routes */}
+      {/* Admin Management Routes */}
       <Route path="/admin/products" element={
         <AdminRoute>
-          <div className="container py-5">
-            <h2>Products Management</h2>
-            <p>Coming soon...</p>
-          </div>
+          <AdminProducts />
         </AdminRoute>
       } />
       
       <Route path="/admin/orders" element={
         <AdminRoute>
-          <div className="container py-5">
-            <h2>Orders Management</h2>
-            <p>Coming soon...</p>
-          </div>
+          <AdminOrders />
         </AdminRoute>
       } />
       
       <Route path="/admin/users" element={
         <AdminRoute>
-          <div className="container py-5">
-            <h2>Users Management</h2>
-            <p>Coming soon...</p>
-          </div>
+          <AdminUsers />
         </AdminRoute>
       } />
       
       <Route path="/admin/categories" element={
         <AdminRoute>
-          <div className="container py-5">
-            <h2>Categories Management</h2>
-            <p>Coming soon...</p>
-          </div>
+          <AdminCategories />
         </AdminRoute>
       } />
     </Routes>

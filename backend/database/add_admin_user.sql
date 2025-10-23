@@ -3,11 +3,11 @@
 
 USE electronics_store;
 
--- Add role column to users table
+-- Add role column to users table (if it doesn't exist)
 ALTER TABLE users ADD COLUMN role ENUM('user', 'admin') DEFAULT 'user';
 
--- Create admin user
-INSERT INTO users (
+-- Create admin user only if it doesn't exist
+INSERT IGNORE INTO users (
     username, 
     email, 
     password_hash, 

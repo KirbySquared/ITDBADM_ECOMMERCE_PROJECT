@@ -38,47 +38,37 @@ $path = str_replace('/api/admin', '', $path);
 
 // Remove leading slash
 $path = ltrim($path, '/');
+$pathParts = explode('/', $path);
 
 error_log("Admin API - Processed path: " . $path);
 error_log("Admin API - Request method: " . $method);
+error_log("Admin API - Path parts: " . json_encode($pathParts));
 
 // Route the request
 error_log("Admin API - Routing to: " . $path);
-switch ($path) {
-    case 'login':
-        if ($method === 'POST') {
-            include 'admin_login.php';
-        } else {
-            sendError('Method not allowed', 405);
-        }
-        break;
-        
-    case 'check_auth':
-        if ($method === 'GET') {
-            include 'admin_check_auth.php';
-        } else {
-            sendError('Method not allowed', 405);
-        }
-        break;
-        
-    case 'dashboard':
-        if ($method === 'GET') {
-            include 'admin_dashboard.php';
-        } else {
-            sendError('Method not allowed', 405);
-        }
-        break;
-        
-    case 'logout':
-        if ($method === 'POST') {
-            include 'admin_logout.php';
-        } else {
-            sendError('Method not allowed', 405);
-        }
-        break;
-        
-    default:
-        sendError('Admin endpoint not found', 404);
-        break;
+
+// Handle specific routes first
+if ($path === 'login' && $method === 'POST') {
+    include 'admin_login.php';
+} elseif ($path === 'check_auth' && $method === 'GET') {
+    include 'admin_check_auth.php';
+} elseif ($path === 'dashboard' && $method === 'GET') {
+    include 'admin_dashboard.php';
+} elseif ($path === 'logout' && $method === 'POST') {
+    include 'admin_logout.php';
+} elseif ($path === 'users' && ($method === 'GET' || $method === 'POST')) {
+    include 'users.php';
+} elseif ($path === 'categories' && ($method === 'GET' || $method === 'POST')) {
+    include 'categories.php';
+} elseif (preg_match('/^users\/\d+$/', $path) && ($method === 'GET' || $method === 'PUT' || $method === 'DELETE')) {
+    include 'users.php';
+} elseif (preg_match('/^categories\/\d+$/', $path) && ($method === 'GET' || $method === 'PUT' || $method === 'DELETE')) {
+    include 'categories.php';
+} elseif ($path === 'products' && ($method === 'GET' || $method === 'POST')) {
+    include 'products.php';
+} elseif (preg_match('/^products\/\d+$/', $path) && ($method === 'GET' || $method === 'PUT' || $method === 'DELETE')) {
+    include 'products.php';
+} else {
+    sendError('Admin endpoint not found', 404);
 }
 ?>

@@ -132,12 +132,22 @@ switch ($path) {
     case 'admin/check_auth':
     case 'admin/dashboard':
     case 'admin/logout':
+    case 'admin/users':
+    case 'admin/categories':
+    case 'admin/products':
         // Route admin requests to admin router
         error_log("Routing to admin API for path: " . $path);
         include 'admin/index.php';
         break;
         
     default:
+        // Check if it's an admin route with ID (e.g., admin/users/123)
+        if (preg_match('/^admin\/(users|categories|products)\/\d+$/', $path)) {
+            error_log("Routing to admin API for path: " . $path);
+            include 'admin/index.php';
+            break;
+        }
+        
         sendError('Endpoint not found', 404);
         break;
 }

@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS reviews;
 DROP TABLE IF EXISTS payments;
 DROP TABLE IF EXISTS order_items;
 DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS product_images;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories;
 DROP TABLE IF EXISTS users;
@@ -63,6 +64,23 @@ CREATE TABLE products (
     
     CHECK (price >= 0),
     CHECK (stock_quantity >= 0)
+);
+
+-- ========================================
+-- 3.1. PRODUCT_IMAGES TABLE
+-- ========================================
+CREATE TABLE product_images (
+    image_id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT NOT NULL,
+    image_url VARCHAR(500) NOT NULL,
+    alt_text VARCHAR(200),
+    is_primary BOOLEAN DEFAULT FALSE,
+    sort_order INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE,
+    
+    CHECK (sort_order >= 0)
 );
 
 -- ========================================
