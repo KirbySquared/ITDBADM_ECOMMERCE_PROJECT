@@ -21,6 +21,7 @@
  * />
  */
 import { useState, useEffect } from 'react'
+import { getCurrencyOptions } from '../utils/currency'
 
 interface Product {
   product_id?: number
@@ -30,6 +31,7 @@ interface Product {
   model?: string
   description?: string
   price: number
+  currency: string
   stock_quantity: number
   specifications?: any
   image_url?: string
@@ -59,6 +61,7 @@ function ProductModal({ show, onHide, product, categories, onSave }: ProductModa
     model: '',
     description: '',
     price: 0,
+    currency: 'USD',
     stock_quantity: 0,
     specifications: {},
     image_url: ''
@@ -77,6 +80,7 @@ function ProductModal({ show, onHide, product, categories, onSave }: ProductModa
         model: '',
         description: '',
         price: 0,
+        currency: 'USD',
         stock_quantity: 0,
         specifications: {},
         image_url: ''
@@ -229,7 +233,7 @@ function ProductModal({ show, onHide, product, categories, onSave }: ProductModa
               </div>
               
               <div className="row">
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="price" className="form-label">Price *</label>
                   <input
                     type="number"
@@ -245,7 +249,26 @@ function ProductModal({ show, onHide, product, categories, onSave }: ProductModa
                   {errors.price && <div className="invalid-feedback">{errors.price}</div>}
                 </div>
                 
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="currency" className="form-label">Currency *</label>
+                  <select
+                    className={`form-select ${errors.currency ? 'is-invalid' : ''}`}
+                    id="currency"
+                    name="currency"
+                    value={formData.currency}
+                    onChange={handleChange}
+                    required
+                  >
+                    {getCurrencyOptions().map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.currency && <div className="invalid-feedback">{errors.currency}</div>}
+                </div>
+                
+                <div className="col-md-4 mb-3">
                   <label htmlFor="stock_quantity" className="form-label">Stock Quantity *</label>
                   <input
                     type="number"

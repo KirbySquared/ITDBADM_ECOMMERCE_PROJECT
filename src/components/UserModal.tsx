@@ -29,13 +29,16 @@ interface User {
   phone?: string
   address?: string
   role: string
+  password?: string
+  created_at?: string
+  updated_at?: string
 }
 
 interface UserModalProps {
   show: boolean
   onHide: () => void
   user?: User | null
-  onSave: (userData: User) => Promise<void>
+  onSave: (userData: Omit<User, 'user_id' | 'created_at' | 'updated_at'>) => Promise<void>
 }
 
 function UserModal({ show, onHide, user, onSave }: UserModalProps) {
@@ -46,7 +49,8 @@ function UserModal({ show, onHide, user, onSave }: UserModalProps) {
     last_name: '',
     phone: '',
     address: '',
-    role: 'user'
+    role: 'user',
+    password: ''
   })
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -62,7 +66,8 @@ function UserModal({ show, onHide, user, onSave }: UserModalProps) {
         last_name: '',
         phone: '',
         address: '',
-        role: 'user'
+        role: 'user',
+        password: ''
       })
     }
     setErrors({})
@@ -92,6 +97,11 @@ function UserModal({ show, onHide, user, onSave }: UserModalProps) {
     if (!formData.first_name.trim()) newErrors.first_name = 'First name is required'
     if (!formData.last_name.trim()) newErrors.last_name = 'Last name is required'
     
+    // Password is required for new users (when user is null/undefined)
+    if (!user && !formData.password?.trim()) {
+      newErrors.password = 'Password is required'
+    }
+    
     if (formData.email && !/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Email format is invalid'
     }
@@ -107,7 +117,15 @@ function UserModal({ show, onHide, user, onSave }: UserModalProps) {
     
     setLoading(true)
     try {
-      await onSave(formData)
+      // Prepare data for saving (exclude fields that shouldn't be sent)
+      const { user_id, created_at, updated_at, ...saveData } = formData
+      
+      // For existing users, don't send password if it's empty
+      if (user && !saveData.password) {
+        delete saveData.password
+      }
+      
+      await onSave(saveData)
       onHide()
     } catch (error) {
       console.error('Error saving user:', error)
@@ -218,6 +236,25 @@ function UserModal({ show, onHide, user, onSave }: UserModalProps) {
                   </select>
                 </div>
               </div>
+              
+              {/* Password field - only show for new users */}
+              {!user && (
+                <div className="row">
+                  <div className="col-md-6 mb-3">
+                    <label htmlFor="password" className="form-label">Password *</label>
+                    <input
+                      type="password"
+                      className={`form-control ${errors.password ? 'is-invalid' : ''}`}
+                      id="password"
+                      name="password"
+                      value={formData.password || ''}
+                      onChange={handleChange}
+                      required
+                    />
+                    {errors.password && <div className="invalid-feedback">{errors.password}</div>}
+                  </div>
+                </div>
+              )}
               
               <div className="mb-3">
                 <label htmlFor="address" className="form-label">Address</label>

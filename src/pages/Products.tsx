@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { formatPrice } from '../utils/currency'
 import './Products.css'
 
 interface Product {
   id: number
   name: string
   price: number
+  currency: string
   image: string
   category: string
 }
@@ -18,14 +20,14 @@ function Products() {
   // Mock data - will be replaced with API calls
   useEffect(() => {
     const mockProducts: Product[] = [
-      { id: 1, name: 'PlayStation 5', price: 499.99, image: '/placeholder-product.jpg', category: 'consoles' },
-      { id: 2, name: 'Xbox Series X', price: 499.99, image: '/placeholder-product.jpg', category: 'consoles' },
-      { id: 3, name: 'Nintendo Switch', price: 299.99, image: '/placeholder-product.jpg', category: 'consoles' },
-      { id: 4, name: 'Gaming Headset', price: 149.99, image: '/placeholder-product.jpg', category: 'accessories' },
-      { id: 5, name: 'Gaming Mouse', price: 79.99, image: '/placeholder-product.jpg', category: 'accessories' },
-      { id: 6, name: 'Gaming Keyboard', price: 129.99, image: '/placeholder-product.jpg', category: 'accessories' },
-      { id: 7, name: 'Cyberpunk 2077', price: 59.99, image: '/placeholder-product.jpg', category: 'games' },
-      { id: 8, name: 'Call of Duty', price: 69.99, image: '/placeholder-product.jpg', category: 'games' },
+      { id: 1, name: 'PlayStation 5', price: 499.99, currency: 'USD', image: '/placeholder-product.jpg', category: 'consoles' },
+      { id: 2, name: 'Xbox Series X', price: 499.99, currency: 'USD', image: '/placeholder-product.jpg', category: 'consoles' },
+      { id: 3, name: 'Nintendo Switch', price: 299.99, currency: 'USD', image: '/placeholder-product.jpg', category: 'consoles' },
+      { id: 4, name: 'Gaming Headset', price: 149.99, currency: 'USD', image: '/placeholder-product.jpg', category: 'accessories' },
+      { id: 5, name: 'Gaming Mouse', price: 79.99, currency: 'USD', image: '/placeholder-product.jpg', category: 'accessories' },
+      { id: 6, name: 'Gaming Keyboard', price: 129.99, currency: 'USD', image: '/placeholder-product.jpg', category: 'accessories' },
+      { id: 7, name: 'Cyberpunk 2077', price: 59.99, currency: 'USD', image: '/placeholder-product.jpg', category: 'games' },
+      { id: 8, name: 'Call of Duty', price: 69.99, currency: 'USD', image: '/placeholder-product.jpg', category: 'games' },
     ]
     
     setTimeout(() => {
@@ -106,7 +108,7 @@ function Products() {
                 </div>
                 <div className="card-body d-flex flex-column">
                   <h5 className="card-title">{product.name}</h5>
-                  <p className="card-text text-primary fw-bold fs-5">${product.price}</p>
+                  <p className="card-text text-primary fw-bold fs-5">{formatPrice(product.price, product.currency)}</p>
                   <div className="mt-auto">
                     <div className="d-grid gap-2">
                       <Link to={`/products/${product.id}`} className="btn btn-outline-primary">

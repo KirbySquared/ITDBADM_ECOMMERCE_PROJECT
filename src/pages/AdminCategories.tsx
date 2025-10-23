@@ -89,10 +89,16 @@ function AdminCategories() {
 
   useEffect(() => {
     fetchCategories()
-  }, [currentPage, searchTerm])
+  }, [currentPage])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
+    setCurrentPage(1)
+    fetchCategories()
+  }
+
+  const handleClearSearch = () => {
+    setSearchTerm('')
     setCurrentPage(1)
     fetchCategories()
   }
@@ -217,12 +223,32 @@ function AdminCategories() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
+              {searchTerm && (
+                <button 
+                  type="button" 
+                  className="btn btn-outline-secondary"
+                  onClick={handleClearSearch}
+                  title="Clear search"
+                >
+                  <i className="bi bi-x"></i>
+                </button>
+              )}
             </div>
           </div>
           <div className="col-md-3">
-            <button type="submit" className="btn btn-outline-secondary w-100">
-              <i className="bi bi-funnel me-1"></i>
+            <button type="submit" className="btn btn-primary w-100">
+              <i className="bi bi-search me-1"></i>
               Search
+            </button>
+          </div>
+          <div className="col-md-3">
+            <button 
+              type="button" 
+              className="btn btn-outline-secondary w-100"
+              onClick={handleClearSearch}
+            >
+              <i className="bi bi-arrow-clockwise me-1"></i>
+              Reset
             </button>
           </div>
         </div>
@@ -281,12 +307,19 @@ function AdminCategories() {
           <i className="bi bi-tags text-muted" style={{fontSize: '4rem'}}></i>
           <h4 className="mt-3">No categories found</h4>
           <p className="text-muted">
-            {searchTerm ? 'Try adjusting your search terms.' : 'Get started by creating your first category.'}
+            {searchTerm ? 'Try adjusting your search terms or clear the search to see all categories.' : 'Get started by creating your first category.'}
           </p>
-          <button className="btn btn-primary" onClick={handleCreateCategory}>
-            <i className="bi bi-plus-circle me-2"></i>
-            Add Category
-          </button>
+          {searchTerm ? (
+            <button className="btn btn-outline-primary" onClick={handleClearSearch}>
+              <i className="bi bi-arrow-clockwise me-2"></i>
+              Clear Search
+            </button>
+          ) : (
+            <button className="btn btn-primary" onClick={handleCreateCategory}>
+              <i className="bi bi-plus-circle me-2"></i>
+              Add Category
+            </button>
+          )}
         </div>
       )}
 

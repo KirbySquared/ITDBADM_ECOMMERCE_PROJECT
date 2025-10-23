@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { formatPrice } from '../utils/currency'
 import './Cart.css'
 
 interface CartItem {
   id: number
   name: string
   price: number
+  currency: string
   image: string
   quantity: number
 }
@@ -13,8 +15,8 @@ interface CartItem {
 function Cart() {
   const [cartItems, setCartItems] = useState<CartItem[]>([
     // Mock data - will be replaced with real cart state
-    { id: 1, name: 'PlayStation 5', price: 499.99, image: '/placeholder-product.jpg', quantity: 1 },
-    { id: 2, name: 'Gaming Headset', price: 149.99, image: '/placeholder-product.jpg', quantity: 2 },
+    { id: 1, name: 'PlayStation 5', price: 499.99, currency: 'USD', image: '/placeholder-product.jpg', quantity: 1 },
+    { id: 2, name: 'Gaming Headset', price: 149.99, currency: 'USD', image: '/placeholder-product.jpg', quantity: 2 },
   ])
 
   const updateQuantity = (id: number, newQuantity: number) => {
@@ -86,7 +88,7 @@ function Cart() {
                     
                     <div className="col-md-4">
                       <h5 className="mb-1">{item.name}</h5>
-                      <p className="text-primary fw-bold mb-0">${item.price}</p>
+                      <p className="text-primary fw-bold mb-0">{formatPrice(item.price, item.currency)}</p>
                     </div>
                     
                     <div className="col-md-3">
@@ -108,7 +110,7 @@ function Cart() {
                     </div>
                     
                     <div className="col-md-2">
-                      <p className="fw-bold mb-0">${(item.price * item.quantity).toFixed(2)}</p>
+                      <p className="fw-bold mb-0">{formatPrice(item.price * item.quantity, item.currency)}</p>
                     </div>
                     
                     <div className="col-md-1">
@@ -132,7 +134,7 @@ function Cart() {
                 
                 <div className="d-flex justify-content-between mb-2">
                   <span>Subtotal:</span>
-                  <span>${getTotalPrice().toFixed(2)}</span>
+                  <span>{formatPrice(getTotalPrice(), 'USD')}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-2">
                   <span>Shipping:</span>
@@ -141,7 +143,7 @@ function Cart() {
                 <hr />
                 <div className="d-flex justify-content-between mb-4">
                   <span className="fw-bold fs-5">Total:</span>
-                  <span className="fw-bold fs-5">${getTotalPrice().toFixed(2)}</span>
+                  <span className="fw-bold fs-5">{formatPrice(getTotalPrice(), 'USD')}</span>
                 </div>
                 
                 <div className="d-grid">

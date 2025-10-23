@@ -170,8 +170,8 @@ try {
             
             // Insert product
             $stmt = $pdo->prepare("
-                INSERT INTO products (category_id, product_name, brand, model, description, price, stock_quantity, specifications, image_url) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (category_id, product_name, brand, model, description, price, currency, stock_quantity, specifications, image_url) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
@@ -181,6 +181,7 @@ try {
                 $input['model'] ?? null,
                 $input['description'] ?? null,
                 $input['price'],
+                $input['currency'] ?? 'USD',
                 $input['stock_quantity'] ?? 0,
                 isset($input['specifications']) ? json_encode($input['specifications']) : null,
                 $input['image_url'] ?? null
@@ -239,7 +240,7 @@ try {
             $updateFields = [];
             $params = [];
             
-            $allowedFields = ['category_id', 'product_name', 'brand', 'model', 'description', 'price', 'stock_quantity', 'image_url'];
+            $allowedFields = ['category_id', 'product_name', 'brand', 'model', 'description', 'price', 'currency', 'stock_quantity', 'image_url'];
             foreach ($allowedFields as $field) {
                 if (isset($input[$field])) {
                     $updateFields[] = "$field = ?";

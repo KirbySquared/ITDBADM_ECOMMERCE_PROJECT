@@ -21,6 +21,7 @@
 import { useState, useEffect } from 'react'
 import AdminLayout from '../components/AdminLayout'
 import ProductModal from '../components/ProductModal'
+import { formatPrice } from '../utils/currency'
 
 interface Product {
   product_id: number
@@ -30,6 +31,7 @@ interface Product {
   model?: string
   description?: string
   price: number
+  currency: string
   stock_quantity: number
   specifications?: any
   image_url?: string
@@ -124,10 +126,17 @@ function AdminProducts() {
 
   useEffect(() => {
     fetchProducts()
-  }, [currentPage, searchTerm, selectedCategory])
+  }, [currentPage])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
+    setCurrentPage(1)
+    fetchProducts()
+  }
+
+  const handleClearSearch = () => {
+    setSearchTerm('')
+    setSelectedCategory('all')
     setCurrentPage(1)
     fetchProducts()
   }
@@ -232,45 +241,65 @@ function AdminProducts() {
         </button>
       </div>
 
-      {/* Search and Filters */}
-      <form onSubmit={handleSearch}>
-        <div className="row mb-4">
-          <div className="col-md-4">
-            <div className="input-group">
-              <span className="input-group-text">
-                <i className="bi bi-search"></i>
-              </span>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Search products..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+          {/* Search and Filters */}
+          <form onSubmit={handleSearch}>
+            <div className="row mb-4">
+              <div className="col-md-4">
+                <div className="input-group">
+                  <span className="input-group-text">
+                    <i className="bi bi-search"></i>
+                  </span>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Search products..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                    <button 
+                      type="button" 
+                      className="btn btn-outline-secondary"
+                      onClick={() => setSearchTerm('')}
+                      title="Clear search"
+                    >
+                      <i className="bi bi-x"></i>
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="col-md-3">
+                <select
+                  className="form-select"
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                >
+                  <option value="all">All Categories</option>
+                  {categories.map(category => (
+                    <option key={category.category_id} value={category.category_name}>
+                      {category.category_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-md-2">
+                <button type="submit" className="btn btn-primary w-100">
+                  <i className="bi bi-search me-1"></i>
+                  Search
+                </button>
+              </div>
+              <div className="col-md-3">
+                <button 
+                  type="button" 
+                  className="btn btn-outline-secondary w-100"
+                  onClick={handleClearSearch}
+                >
+                  <i className="bi bi-arrow-clockwise me-1"></i>
+                  Reset
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="col-md-3">
-            <select
-              className="form-select"
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-            >
-              <option value="all">All Categories</option>
-              {categories.map(category => (
-                <option key={category.category_id} value={category.category_name}>
-                  {category.category_name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="col-md-3">
-            <button type="submit" className="btn btn-outline-secondary w-100">
-              <i className="bi bi-funnel me-1"></i>
-              Search
-            </button>
-          </div>
-        </div>
-      </form>
+          </form>
 
       {/* Products Table */}
       <div className="card">
@@ -282,7 +311,7 @@ function AdminProducts() {
                   <th>ID</th>
                   <th>Product Name</th>
                   <th>Brand</th>
-                  <th>Price</th>
+                      <th>Price & Currency</th>
                   <th>Stock</th>
                   <th>Category</th>
                   <th>Created</th>
@@ -300,7 +329,7 @@ function AdminProducts() {
                       </div>
                     </td>
                     <td>{product.brand}</td>
-                    <td>${product.price.toFixed(2)}</td>
+                    <td>{formatPrice(product.price, product.currency)}</td>
                     <td>
                       <span className={`badge ${
                         product.stock_quantity < 10 ? 'bg-danger' : 

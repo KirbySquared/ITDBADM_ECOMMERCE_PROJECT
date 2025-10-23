@@ -95,10 +95,17 @@ function AdminUsers() {
 
   useEffect(() => {
     fetchUsers()
-  }, [currentPage, searchTerm, roleFilter])
+  }, [currentPage])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
+    setCurrentPage(1)
+    fetchUsers()
+  }
+
+  const handleClearSearch = () => {
+    setSearchTerm('')
+    setRoleFilter('all')
     setCurrentPage(1)
     fetchUsers()
   }
@@ -113,7 +120,7 @@ function AdminUsers() {
     setShowModal(true)
   }
 
-  const handleSaveUser = async (userData: User) => {
+  const handleSaveUser = async (userData: Omit<User, 'user_id' | 'created_at' | 'updated_at'>) => {
     try {
       const token = localStorage.getItem('token')
       if (!token) {

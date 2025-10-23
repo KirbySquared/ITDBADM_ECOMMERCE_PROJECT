@@ -54,6 +54,7 @@ CREATE TABLE products (
     model VARCHAR(100),
     description TEXT,
     price DECIMAL(10, 2) NOT NULL,
+    currency ENUM('USD', 'PHP', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD') DEFAULT 'USD',
     stock_quantity INT NOT NULL DEFAULT 0,
     specifications JSON,
     image_url VARCHAR(500),
@@ -129,6 +130,7 @@ CREATE TABLE payments (
     payment_method ENUM('credit_card', 'debit_card', 'gcash', 'maya', 'bank_transfer', 'cod') NOT NULL,
     payment_status ENUM('pending', 'completed', 'failed', 'refunded') DEFAULT 'pending',
     amount DECIMAL(10, 2) NOT NULL,
+    currency ENUM('USD', 'PHP', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD') DEFAULT 'USD',
     transaction_id VARCHAR(100),
     payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     

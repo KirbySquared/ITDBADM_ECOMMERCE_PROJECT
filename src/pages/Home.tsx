@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { formatPrice } from '../utils/currency'
 import './Home.css'
 
 function Home() {
@@ -38,7 +39,7 @@ function Home() {
                 </div>
                 <div className="card-body d-flex flex-column">
                   <h5 className="card-title">Gaming Console</h5>
-                  <p className="card-text text-primary fw-bold fs-5">$299.99</p>
+                  <p className="card-text text-primary fw-bold fs-5">{formatPrice(299.99, 'USD')}</p>
                   <div className="mt-auto">
                     <button className="btn btn-primary w-100">Add to Cart</button>
                   </div>
@@ -55,7 +56,7 @@ function Home() {
                 </div>
                 <div className="card-body d-flex flex-column">
                   <h5 className="card-title">Gaming Headset</h5>
-                  <p className="card-text text-primary fw-bold fs-5">$149.99</p>
+                  <p className="card-text text-primary fw-bold fs-5">{formatPrice(149.99, 'USD')}</p>
                   <div className="mt-auto">
                     <button className="btn btn-primary w-100">Add to Cart</button>
                   </div>
@@ -72,7 +73,7 @@ function Home() {
                 </div>
                 <div className="card-body d-flex flex-column">
                   <h5 className="card-title">Gaming Mouse</h5>
-                  <p className="card-text text-primary fw-bold fs-5">$79.99</p>
+                  <p className="card-text text-primary fw-bold fs-5">{formatPrice(79.99, 'USD')}</p>
                   <div className="mt-auto">
                     <button className="btn btn-primary w-100">Add to Cart</button>
                   </div>
