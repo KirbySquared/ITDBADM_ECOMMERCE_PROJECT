@@ -17,7 +17,7 @@ $email = sanitizeInput($input['email']);
 $password = $input['password'];
 
 // Find user by email
-$stmt = $pdo->prepare("SELECT id, first_name, last_name, email, password FROM users WHERE email = ?");
+$stmt = $pdo->prepare("SELECT user_id, first_name, last_name, email, password_hash FROM users WHERE email = ?");
 $stmt->execute([$email]);
 $user = $stmt->fetch();
 
@@ -26,15 +26,15 @@ if (!$user) {
 }
 
 // Verify password
-if (!password_verify($password, $user['password'])) {
+if (!password_verify($password, $user['password_hash'])) {
     sendError('Invalid credentials', 401);
 }
 
 // Generate token
-$token = generateToken($user['id']);
+$token = generateToken($user['user_id']);
 
 // Remove password from response
-unset($user['password']);
+unset($user['password_hash']);
 
 sendResponse([
     'user' => $user,

@@ -39,7 +39,7 @@ if ($quantity <= 0) {
 
 try {
     // Check if product exists and has stock
-    $stmt = $pdo->prepare("SELECT stock_quantity FROM products WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT stock_quantity FROM products WHERE product_id = ?");
     $stmt->execute([$productId]);
     $product = $stmt->fetch();
     
@@ -52,18 +52,18 @@ try {
     }
     
     // Check if item already exists in cart
-    $stmt = $pdo->prepare("SELECT id, quantity FROM cart_items WHERE user_id = ? AND product_id = ?");
+    $stmt = $pdo->prepare("SELECT cart_id, quantity FROM cart WHERE user_id = ? AND product_id = ?");
     $stmt->execute([$userId, $productId]);
     $existingItem = $stmt->fetch();
     
     if ($existingItem) {
         // Update existing item
         $newQuantity = $existingItem['quantity'] + $quantity;
-        $stmt = $pdo->prepare("UPDATE cart_items SET quantity = ? WHERE id = ?");
-        $stmt->execute([$newQuantity, $existingItem['id']]);
+        $stmt = $pdo->prepare("UPDATE cart SET quantity = ? WHERE cart_id = ?");
+        $stmt->execute([$newQuantity, $existingItem['cart_id']]);
     } else {
         // Add new item
-        $stmt = $pdo->prepare("INSERT INTO cart_items (user_id, product_id, quantity) VALUES (?, ?, ?)");
+        $stmt = $pdo->prepare("INSERT INTO cart (user_id, product_id, quantity) VALUES (?, ?, ?)");
         $stmt->execute([$userId, $productId, $quantity]);
     }
     

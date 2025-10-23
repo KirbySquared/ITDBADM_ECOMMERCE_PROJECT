@@ -1,0 +1,62 @@
+.admin-login {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  padding: 2rem 0;
+}
+
+.login-card {
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  padding: 2rem;
+}
+
+.login-card .form-control {
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  padding: 0.75rem;
+}
+
+.login-card .form-control:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.login-card .btn {
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-weight: 500;
+}
+
+.login-card .btn-primary {
+  background-color: #007bff;
+  border-color: #007bff;
+}
+
+.login-card .btn-primary:hover {
+  background-color: #0056b3;
+  border-color: #0056b3;
+}
+
+.login-card .alert {
+  border-radius: 8px;
+  border: none;
+}
+
+.login-card .text-muted {
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 768px) {
+  .admin-login {
+    padding: 1rem 0;
+  }
+  
+  .login-card {
+    padding: 1.5rem;
+    margin: 1rem;
+  }
+}

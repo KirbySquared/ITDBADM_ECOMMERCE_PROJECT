@@ -1,26 +1,17 @@
 <?php
-// Database configuration
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'gamestore_db');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+// Database configuration for remote MySQL server via SSH tunnel
+// You need to establish an SSH tunnel first before running the application
+// Command: ssh -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010
+define('DB_HOST', '127.0.0.1:3307'); // Localhost with port 3307 to avoid conflict with MySQL Workbench
+define('DB_NAME', 'electronics_store'); // You may need to create this database on the remote server
+define('DB_USER', 'student1');
+define('DB_PASS', 'Dlsu1234!'); // You'll need to set your password here
 
-// JWT Secret for authentication
-define('JWT_SECRET', 'your-secret-key-here');
+// JWT Secret for authentication - CHANGE THIS IN PRODUCTION!
+define('JWT_SECRET', 'electronics_store_jwt_secret_key_2024_secure_random_string');
 
 // API Configuration
 define('API_BASE_URL', 'http://localhost/gamestore/api');
-
-// CORS Configuration
-header('Access-Control-Allow-Origin: http://localhost:5173');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-
-// Handle preflight requests
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit();
-}
 
 // Database connection
 try {

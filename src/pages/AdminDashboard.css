@@ -1,0 +1,77 @@
+.admin-dashboard {
+  min-height: 100vh;
+  background-color: #f8f9fa;
+}
+
+.admin-sidebar {
+  min-height: calc(100vh - 56px); /* Subtract header height */
+  background: #343a40;
+}
+
+.admin-sidebar .nav-link {
+  color: #adb5bd;
+  text-decoration: none;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  margin-bottom: 0.25rem;
+  transition: all 0.2s;
+}
+
+.admin-sidebar .nav-link:hover {
+  color: white;
+  background-color: #495057;
+}
+
+.admin-sidebar .nav-link.active {
+  color: white;
+  background-color: #495057;
+}
+
+.admin-sidebar .nav-link.btn {
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+
+.stat-card {
+  transition: transform 0.2s;
+  border: none;
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.admin-dashboard .card {
+  border: none;
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.admin-dashboard .card-header {
+  background-color: white;
+  border-bottom: 1px solid #dee2e6;
+  font-weight: 600;
+}
+
+.admin-dashboard .table th {
+  border-top: none;
+  font-weight: 600;
+  color: #495057;
+}
+
+.admin-dashboard .badge {
+  font-size: 0.75em;
+}
+
+@media (max-width: 768px) {
+  .admin-sidebar {
+    min-height: auto;
+  }
+  
+  .stat-card .fs-1 {
+    font-size: 2rem !important;
+  }
+}

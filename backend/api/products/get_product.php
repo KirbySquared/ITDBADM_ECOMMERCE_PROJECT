@@ -11,10 +11,10 @@ if (!$productId || !is_numeric($productId)) {
 
 try {
     $stmt = $pdo->prepare("
-        SELECT p.*, c.name as category_name 
+        SELECT p.*, c.category_name 
         FROM products p 
-        LEFT JOIN categories c ON p.category_id = c.id 
-        WHERE p.id = ?
+        LEFT JOIN categories c ON p.category_id = c.category_id 
+        WHERE p.product_id = ?
     ");
     
     $stmt->execute([$productId]);

@@ -24,7 +24,7 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
 }
 
 // Check if user already exists
-$stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+$stmt = $pdo->prepare("SELECT user_id FROM users WHERE email = ?");
 $stmt->execute([$email]);
 
 if ($stmt->fetch()) {
@@ -34,14 +34,17 @@ if ($stmt->fetch()) {
 // Hash password
 $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
 
+// Generate username from email
+$username = explode('@', $email)[0];
+
 // Insert new user
 try {
     $stmt = $pdo->prepare("
-        INSERT INTO users (first_name, last_name, email, password) 
-        VALUES (?, ?, ?, ?)
+        INSERT INTO users (username, first_name, last_name, email, password_hash) 
+        VALUES (?, ?, ?, ?, ?)
     ");
     
-    $stmt->execute([$firstName, $lastName, $email, $hashedPassword]);
+    $stmt->execute([$username, $firstName, $lastName, $email, $hashedPassword]);
     
     $userId = $pdo->lastInsertId();
     
@@ -50,7 +53,8 @@ try {
     
     sendResponse([
         'user' => [
-            'id' => $userId,
+            'user_id' => $userId,
+            'username' => $username,
             'first_name' => $firstName,
             'last_name' => $lastName,
             'email' => $email

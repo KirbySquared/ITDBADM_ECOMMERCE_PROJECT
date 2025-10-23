@@ -45,6 +45,26 @@
   gap: 15px;
 }
 
+/* Admin Header Styles */
+.navbar-dark .navbar-brand {
+  font-weight: 600;
+  font-size: 1.25rem;
+}
+
+.navbar-dark .navbar-nav .nav-link {
+  color: rgba(255, 255, 255, 0.85) !important;
+  transition: color 0.2s;
+}
+
+.navbar-dark .navbar-nav .nav-link:hover {
+  color: white !important;
+}
+
+.navbar-dark .btn-outline-light:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
 @media (max-width: 768px) {
   .header-content {
     flex-direction: column;
@@ -57,5 +77,15 @@
   
   .header-actions {
     gap: 10px;
+  }
+  
+  .navbar-dark .navbar-nav {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+  
+  .navbar-dark .navbar-nav .nav-link {
+    padding: 0.5rem;
+    font-size: 0.875rem;
   }
 }

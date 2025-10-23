@@ -22,10 +22,10 @@ if (!$userId) {
 
 try {
     $stmt = $pdo->prepare("
-        SELECT ci.*, p.name, p.price, p.image_url 
-        FROM cart_items ci 
-        JOIN products p ON ci.product_id = p.id 
-        WHERE ci.user_id = ?
+        SELECT c.*, p.product_name, p.price, p.image_url 
+        FROM cart c 
+        JOIN products p ON c.product_id = p.product_id 
+        WHERE c.user_id = ?
     ");
     
     $stmt->execute([$userId]);

@@ -1,6 +1,6 @@
 <?php
-require_once '../../config/database.php';
-require_once '../../utils/response.php';
+require_once '../config/database.php';
+require_once '../utils/response.php';
 
 // Get query parameters
 $category = $_GET['category'] ?? null;
@@ -9,13 +9,13 @@ $limit = min(50, max(1, intval($_GET['limit'] ?? 12)));
 $offset = ($page - 1) * $limit;
 
 // Build query
-$sql = "SELECT p.*, c.name as category_name 
+$sql = "SELECT p.*, c.category_name 
         FROM products p 
-        LEFT JOIN categories c ON p.category_id = c.id";
+        LEFT JOIN categories c ON p.category_id = c.category_id";
 $params = [];
 
 if ($category) {
-    $sql .= " WHERE c.name = ?";
+    $sql .= " WHERE c.category_name = ?";
     $params[] = $category;
 }
 
@@ -29,11 +29,11 @@ try {
     $products = $stmt->fetchAll();
     
     // Get total count for pagination
-    $countSql = "SELECT COUNT(*) FROM products p LEFT JOIN categories c ON p.category_id = c.id";
+    $countSql = "SELECT COUNT(*) FROM products p LEFT JOIN categories c ON p.category_id = c.category_id";
     $countParams = [];
     
     if ($category) {
-        $countSql .= " WHERE c.name = ?";
+        $countSql .= " WHERE c.category_name = ?";
         $countParams[] = $category;
     }
     

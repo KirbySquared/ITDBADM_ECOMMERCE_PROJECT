@@ -3,7 +3,7 @@ require_once '../../config/database.php';
 require_once '../../utils/response.php';
 
 try {
-    $stmt = $pdo->prepare("SELECT * FROM categories ORDER BY name");
+    $stmt = $pdo->prepare("SELECT * FROM categories ORDER BY category_name");
     $stmt->execute();
     $categories = $stmt->fetchAll();
     
