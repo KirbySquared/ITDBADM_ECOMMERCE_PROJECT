@@ -22,7 +22,8 @@ if (!$userId) {
 
 try {
     $stmt = $pdo->prepare("
-        SELECT c.*, p.product_name, p.price, p.image_url 
+        SELECT c.*, p.product_name, p.price, 
+               (SELECT image_url FROM product_images WHERE product_id = p.product_id AND is_primary = TRUE LIMIT 1) as image_url
         FROM cart c 
         JOIN products p ON c.product_id = p.product_id 
         WHERE c.user_id = ?

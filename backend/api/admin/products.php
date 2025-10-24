@@ -65,7 +65,7 @@ try {
     switch ($method) {
         case 'GET':
             if ($productIdParam) {
-                // Get specific product with category name
+                // Get specific product with category name and images
                 $stmt = $pdo->prepare("
                     SELECT p.*, c.category_name 
                     FROM products p 
@@ -78,6 +78,16 @@ try {
                 if (!$product) {
                     sendError('Product not found', 404);
                 }
+                
+                // Get images for this product
+                $stmt = $pdo->prepare("
+                    SELECT image_id, image_url, alt_text, is_primary, sort_order, created_at
+                    FROM product_images 
+                    WHERE product_id = ? 
+                    ORDER BY is_primary DESC, sort_order ASC, created_at ASC
+                ");
+                $stmt->execute([$productIdParam]);
+                $product['images'] = $stmt->fetchAll();
                 
                 sendResponse($product, 'Product retrieved successfully');
             } else {
@@ -120,6 +130,18 @@ try {
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($params);
                 $products = $stmt->fetchAll();
+                
+                // Fetch images for each product
+                foreach ($products as &$product) {
+                    $stmt = $pdo->prepare("
+                        SELECT image_id, image_url, alt_text, is_primary, sort_order, created_at
+                        FROM product_images 
+                        WHERE product_id = ? 
+                        ORDER BY is_primary DESC, sort_order ASC, created_at ASC
+                    ");
+                    $stmt->execute([$product['product_id']]);
+                    $product['images'] = $stmt->fetchAll();
+                }
                 
                 // Get total count
                 $countSql = "SELECT COUNT(*) 
@@ -170,8 +192,8 @@ try {
             
             // Insert product
             $stmt = $pdo->prepare("
-                INSERT INTO products (category_id, product_name, brand, model, description, price, currency, stock_quantity, specifications, image_url) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (category_id, product_name, brand, model, description, price, currency, stock_quantity, specifications) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
@@ -183,8 +205,7 @@ try {
                 $input['price'],
                 $input['currency'] ?? 'USD',
                 $input['stock_quantity'] ?? 0,
-                isset($input['specifications']) ? json_encode($input['specifications']) : null,
-                $input['image_url'] ?? null
+                isset($input['specifications']) ? json_encode($input['specifications']) : null
             ]);
             
             $newProductId = $pdo->lastInsertId();
@@ -240,7 +261,7 @@ try {
             $updateFields = [];
             $params = [];
             
-            $allowedFields = ['category_id', 'product_name', 'brand', 'model', 'description', 'price', 'currency', 'stock_quantity', 'image_url'];
+            $allowedFields = ['category_id', 'product_name', 'brand', 'model', 'description', 'price', 'currency', 'stock_quantity'];
             foreach ($allowedFields as $field) {
                 if (isset($input[$field])) {
                     $updateFields[] = "$field = ?";

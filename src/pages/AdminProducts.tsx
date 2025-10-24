@@ -20,7 +20,7 @@
  */
 import { useState, useEffect } from 'react'
 import AdminLayout from '../components/AdminLayout'
-import ProductModal from '../components/ProductModal'
+import AdminProductModal from '../components/AdminProductModal'
 import { formatPrice } from '../utils/currency'
 
 interface Product {
@@ -34,7 +34,14 @@ interface Product {
   currency: string
   stock_quantity: number
   specifications?: any
-  image_url?: string
+  images?: Array<{
+    image_id: number
+    image_url: string
+    alt_text?: string
+    is_primary: boolean
+    sort_order: number
+    created_at: string
+  }>
   category_name: string
   created_at: string
   updated_at?: string
@@ -56,7 +63,7 @@ function AdminProducts() {
   const [totalPages, setTotalPages] = useState(1)
   const [showModal, setShowModal] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const fetchCategories = async () => {
     try {
@@ -311,9 +318,10 @@ function AdminProducts() {
                   <th>ID</th>
                   <th>Product Name</th>
                   <th>Brand</th>
-                      <th>Price & Currency</th>
+                  <th>Price & Currency</th>
                   <th>Stock</th>
                   <th>Category</th>
+                  <th>Images</th>
                   <th>Created</th>
                   <th>Actions</th>
                 </tr>
@@ -323,9 +331,30 @@ function AdminProducts() {
                   <tr key={product.product_id}>
                     <td>{product.product_id}</td>
                     <td>
-                      <div>
-                        <strong>{product.product_name}</strong>
-                        {product.model && <div><small className="text-muted">{product.model}</small></div>}
+                      <div className="d-flex align-items-center gap-2">
+                        {product.images && product.images.length > 0 ? (
+                          <img 
+                            src={product.images.find(img => img.is_primary)?.image_url || product.images[0].image_url} 
+                            alt={product.product_name}
+                            className="rounded"
+                            style={{ width: '32px', height: '32px', objectFit: 'cover' }}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement
+                              target.style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <div 
+                            className="bg-light rounded d-flex align-items-center justify-content-center"
+                            style={{ width: '32px', height: '32px' }}
+                          >
+                            <i className="bi bi-image text-muted" style={{fontSize: '0.8rem'}}></i>
+                          </div>
+                        )}
+                        <div>
+                          <strong>{product.product_name}</strong>
+                          {product.model && <div><small className="text-muted">{product.model}</small></div>}
+                        </div>
                       </div>
                     </td>
                     <td>{product.brand}</td>
@@ -339,6 +368,40 @@ function AdminProducts() {
                       </span>
                     </td>
                     <td>{product.category_name}</td>
+                    <td>
+                      <div className="d-flex align-items-center gap-2">
+                        {product.images && product.images.length > 0 ? (
+                          <img 
+                            src={product.images.find(img => img.is_primary)?.image_url || product.images[0].image_url} 
+                            alt={product.product_name}
+                            className="rounded"
+                            style={{ width: '40px', height: '40px', objectFit: 'cover' }}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement
+                              target.style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <div 
+                            className="bg-light rounded d-flex align-items-center justify-content-center"
+                            style={{ width: '40px', height: '40px' }}
+                          >
+                            <i className="bi bi-image text-muted"></i>
+                          </div>
+                        )}
+                        <div>
+                          <small className="text-muted d-block">
+                            {product.images ? product.images.length : 0} image{product.images && product.images.length !== 1 ? 's' : ''}
+                          </small>
+                          {product.images && product.images.some(img => img.is_primary) && (
+                            <small className="text-success">
+                              <i className="bi bi-star-fill me-1"></i>
+                              Primary set
+                            </small>
+                          )}
+                        </div>
+                      </div>
+                    </td>
                     <td>{new Date(product.created_at).toLocaleDateString()}</td>
                     <td>
                       <div className="btn-group btn-group-sm">
@@ -408,7 +471,7 @@ function AdminProducts() {
       </div>
 
       {/* Product Modal */}
-      <ProductModal
+        <AdminProductModal
         show={showModal}
         onHide={() => setShowModal(false)}
         product={selectedProduct}

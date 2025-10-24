@@ -9,7 +9,8 @@ $limit = min(50, max(1, intval($_GET['limit'] ?? 12)));
 $offset = ($page - 1) * $limit;
 
 // Build query
-$sql = "SELECT p.*, c.category_name 
+$sql = "SELECT p.*, c.category_name, 
+               (SELECT image_url FROM product_images WHERE product_id = p.product_id AND is_primary = TRUE LIMIT 1) as primary_image_url
         FROM products p 
         LEFT JOIN categories c ON p.category_id = c.category_id";
 $params = [];

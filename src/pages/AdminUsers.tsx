@@ -19,7 +19,7 @@
  */
 import { useState, useEffect } from 'react'
 import AdminLayout from '../components/AdminLayout'
-import UserModal from '../components/UserModal'
+import AdminUserModal from '../components/AdminUserModal'
 
 interface User {
   user_id: number
@@ -356,7 +356,7 @@ function AdminUsers() {
       </div>
 
       {/* User Modal */}
-      <UserModal
+      <AdminUserModal
         show={showModal}
         onHide={() => setShowModal(false)}
         user={selectedUser}

@@ -135,14 +135,16 @@ switch ($path) {
     case 'admin/users':
     case 'admin/categories':
     case 'admin/products':
+    case 'admin/orders':
         // Route admin requests to admin router
         error_log("Routing to admin API for path: " . $path);
         include 'admin/index.php';
         break;
         
     default:
-        // Check if it's an admin route with ID (e.g., admin/users/123)
-        if (preg_match('/^admin\/(users|categories|products)\/\d+$/', $path)) {
+        // Check if it's an admin route with ID (e.g., admin/users/123, admin/products/123/images, admin/orders/123)
+        if (preg_match('/^admin\/(users|categories|products|orders)\/\d+$/', $path) || 
+            preg_match('/^admin\/products\/\d+\/images/', $path)) {
             error_log("Routing to admin API for path: " . $path);
             include 'admin/index.php';
             break;

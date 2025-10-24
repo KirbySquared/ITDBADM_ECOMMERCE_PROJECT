@@ -10,8 +10,9 @@ define('DB_PASS', 'Dlsu1234!'); // You'll need to set your password here
 // JWT Secret for authentication - CHANGE THIS IN PRODUCTION!
 define('JWT_SECRET', 'electronics_store_jwt_secret_key_2024_secure_random_string');
 
-// API Configuration
-define('API_BASE_URL', 'http://localhost/gamestore/api');
+// API Configuration - Update this based on your server setup
+define('API_BASE_URL', 'http://localhost:8000/api'); // For PHP built-in server
+// define('API_BASE_URL', 'http://localhost/gamestore/api'); // For Apache/Nginx
 
 // Database connection
 try {

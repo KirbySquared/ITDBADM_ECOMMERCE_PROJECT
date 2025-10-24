@@ -33,8 +33,18 @@ function validateRequired($data, $requiredFields) {
     $errors = [];
     
     foreach ($requiredFields as $field) {
-        if (!isset($data[$field]) || empty(trim($data[$field]))) {
+        if (!isset($data[$field])) {
             $errors[$field] = ucfirst($field) . ' is required';
+        } elseif (is_array($data[$field])) {
+            // For arrays, check if they're empty
+            if (empty($data[$field])) {
+                $errors[$field] = ucfirst($field) . ' is required';
+            }
+        } else {
+            // For strings, check if they're empty after trimming
+            if (empty(trim($data[$field]))) {
+                $errors[$field] = ucfirst($field) . ' is required';
+            }
         }
     }
     

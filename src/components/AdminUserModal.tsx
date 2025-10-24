@@ -34,14 +34,14 @@ interface User {
   updated_at?: string
 }
 
-interface UserModalProps {
+interface AdminUserModalProps {
   show: boolean
   onHide: () => void
   user?: User | null
   onSave: (userData: Omit<User, 'user_id' | 'created_at' | 'updated_at'>) => Promise<void>
 }
 
-function UserModal({ show, onHide, user, onSave }: UserModalProps) {
+function AdminUserModal({ show, onHide, user, onSave }: AdminUserModalProps) {
   const [formData, setFormData] = useState<User>({
     username: '',
     email: '',
@@ -291,4 +291,4 @@ function UserModal({ show, onHide, user, onSave }: UserModalProps) {
   )
 }
 
-export default UserModal
+export default AdminUserModal

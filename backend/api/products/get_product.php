@@ -24,6 +24,16 @@ try {
         sendError('Product not found', 404);
     }
     
+    // Get images for this product
+    $stmt = $pdo->prepare("
+        SELECT image_id, image_url, alt_text, is_primary, sort_order, created_at
+        FROM product_images 
+        WHERE product_id = ? 
+        ORDER BY is_primary DESC, sort_order ASC, created_at ASC
+    ");
+    $stmt->execute([$productId]);
+    $product['images'] = $stmt->fetchAll();
+    
     sendResponse($product, 'Product retrieved successfully');
     
 } catch (PDOException $e) {

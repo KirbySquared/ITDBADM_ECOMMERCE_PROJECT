@@ -57,7 +57,6 @@ CREATE TABLE products (
     currency ENUM('USD', 'PHP', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD') DEFAULT 'USD',
     stock_quantity INT NOT NULL DEFAULT 0,
     specifications JSON,
-    image_url VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
@@ -92,6 +91,7 @@ CREATE TABLE orders (
     user_id INT NOT NULL,
     order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     total_amount DECIMAL(10, 2) NOT NULL,
+    currency ENUM('USD', 'PHP', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD') DEFAULT 'PHP',
     status ENUM('pending', 'processing', 'shipped', 'delivered', 'cancelled') DEFAULT 'pending',
     shipping_address TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

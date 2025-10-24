@@ -66,8 +66,22 @@ if ($path === 'login' && $method === 'POST') {
     include 'categories.php';
 } elseif ($path === 'products' && ($method === 'GET' || $method === 'POST')) {
     include 'products.php';
-} elseif (preg_match('/^products\/\d+$/', $path) && ($method === 'GET' || $method === 'PUT' || $method === 'DELETE')) {
-    include 'products.php';
+} elseif ($path === 'orders' && ($method === 'GET' || $method === 'POST')) {
+    include 'orders.php';
+} elseif (preg_match('/^products\/\d+/', $path)) {
+    // Parse the path like React Router
+    $pathSegments = explode('/', $path);
+    $productId = $pathSegments[1]; // products/{id}
+    
+    if (isset($pathSegments[2]) && $pathSegments[2] === 'images') {
+        // Route to product images handler
+        include 'product_images.php';
+    } else {
+        // Route to products handler
+        include 'products.php';
+    }
+} elseif (preg_match('/^orders\/\d+$/', $path) && ($method === 'GET' || $method === 'PUT' || $method === 'DELETE')) {
+    include 'orders.php';
 } else {
     sendError('Admin endpoint not found', 404);
 }
