@@ -29,6 +29,9 @@
  * - Test CORS headers in browser dev tools
  */
 // Main API Router with Debug Logging
+// Start output buffering to catch any accidental output
+ob_start();
+
 error_log("=== API INDEX.PHP CALLED ===");
 error_log("Request URI: " . $_SERVER['REQUEST_URI']);
 error_log("Request Method: " . $_SERVER['REQUEST_METHOD']);
@@ -47,6 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();
 }
+
+// Disable error display to prevent HTML from breaking JSON responses
+error_reporting(E_ALL);
+ini_set('display_errors', 0); // Don't display errors, only log them
+ini_set('log_errors', 1);
+
+// Define constant to indicate we're in an API request
+define('IN_API_REQUEST', true);
 
 // Try to include database and response files
 $dbPath = __DIR__ . '/../config/database.php';
@@ -89,17 +100,30 @@ switch ($path) {
         }
         break;
         
-    case 'products':
-        if ($method === 'GET') {
-            include 'products/get_products.php';
+    case 'auth/logout':
+        if ($method === 'POST') {
+            include 'auth/logout.php';
         } else {
             sendError('Method not allowed', 405);
         }
         break;
         
-    case 'products/' . (isset($_GET['id']) ? $_GET['id'] : ''):
+    case 'auth/profile':
+        if ($method === 'PUT') {
+            include 'auth/profile.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
+    case 'products':
         if ($method === 'GET') {
-            include 'products/get_product.php';
+            // Check if there's an ID in the query string
+            if (isset($_GET['id']) && is_numeric($_GET['id'])) {
+                include 'products/get_product.php';
+            } else {
+                include 'products/get_products.php';
+            }
         } else {
             sendError('Method not allowed', 405);
         }

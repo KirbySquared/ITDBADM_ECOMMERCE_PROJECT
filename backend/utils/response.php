@@ -2,6 +2,11 @@
 // API Response Helper Functions
 
 function sendResponse($data = null, $message = '', $statusCode = 200) {
+    // Clean any buffered output
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
     http_response_code($statusCode);
     header('Content-Type: application/json');
     
@@ -16,6 +21,11 @@ function sendResponse($data = null, $message = '', $statusCode = 200) {
 }
 
 function sendError($message = 'An error occurred', $statusCode = 400, $errors = null) {
+    // Clean any buffered output
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
     http_response_code($statusCode);
     header('Content-Type: application/json');
     

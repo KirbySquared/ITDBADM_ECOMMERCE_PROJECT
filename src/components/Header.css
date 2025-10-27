@@ -45,6 +45,30 @@
   gap: 15px;
 }
 
+/* Gradient Header Styles */
+.navbar {
+  transition: all 0.3s ease;
+}
+
+.navbar-brand {
+  transition: all 0.3s ease;
+}
+
+.navbar-brand:hover {
+  transform: scale(1.05);
+}
+
+.nav-link {
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  padding: 0.5rem 1rem !important;
+}
+
+.nav-link:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  transform: translateY(-2px);
+}
+
 /* Admin Header Styles */
 .navbar-dark .navbar-brand {
   font-weight: 600;
@@ -53,16 +77,70 @@
 
 .navbar-dark .navbar-nav .nav-link {
   color: rgba(255, 255, 255, 0.85) !important;
-  transition: color 0.2s;
+  transition: all 0.2s ease;
 }
 
 .navbar-dark .navbar-nav .nav-link:hover {
   color: white !important;
+  background-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 .navbar-dark .btn-outline-light:hover {
   background-color: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.navbar button {
+  transition: all 0.3s ease;
+}
+
+.navbar button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Gradient header button styles */
+.navbar[style*="linear-gradient"] .btn,
+.navbar[style*="linear-gradient"] .profile-btn {
+  transition: all 0.3s ease;
+}
+
+.navbar[style*="linear-gradient"] .btn:hover,
+.navbar[style*="linear-gradient"] .profile-btn:hover {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  transform: translateY(-2px);
+  color: white !important;
+}
+
+/* Cart Button Styling */
+.cart-button-wrapper {
+  border: 2px solid transparent;
+  border-radius: 0.375rem;
+  transition: all 0.2s ease;
+}
+
+.cart-button-wrapper:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.cart-toggle {
+  padding: 0.375rem 0.75rem !important;
+  border: none !important;
+  border-radius: 0.375rem 0 0 0.375rem !important;
+  margin-right: 0 !important;
+}
+
+.cart-link {
+  padding: 0.375rem 0.75rem !important;
+  margin-left: 0 !important;
+  border-radius: 0 0.375rem 0.375rem 0 !important;
+  transition: all 0.2s ease;
+}
+
+.cart-toggle + .cart-link {
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 @media (max-width: 768px) {

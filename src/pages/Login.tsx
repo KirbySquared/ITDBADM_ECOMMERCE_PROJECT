@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import './Login.css'
 
 function Login() {
@@ -7,11 +7,52 @@ function Login() {
     email: '',
     password: ''
   })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const navigate = useNavigate()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Handle login logic here
-    console.log('Login submitted:', formData)
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch('http://localhost:8000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+      })
+
+      // Check if response is ok and has content
+      const contentType = response.headers.get("content-type")
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text()
+        console.error('Non-JSON response:', text)
+        throw new Error('Server returned invalid response. Check if PHP server is running on port 8000.')
+      }
+
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Login failed')
+      }
+
+      // Store token and user data
+      localStorage.setItem('token', data.data.token)
+      localStorage.setItem('user', JSON.stringify(data.data.user))
+      
+      // Trigger auth state change event
+      window.dispatchEvent(new Event('authStateChanged'))
+      
+      // Redirect to homepage
+      navigate('/')
+    } catch (err) {
+      console.error('Login error:', err)
+      setError(err instanceof Error ? err.message : 'Login failed. Please try again.')
+      setLoading(false)
+    }
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -19,6 +60,8 @@ function Login() {
       ...formData,
       [e.target.name]: e.target.value
     })
+    // Clear error when user starts typing
+    if (error) setError('')
   }
 
   return (
@@ -29,6 +72,13 @@ function Login() {
             <div className="card shadow">
               <div className="card-body p-4">
                 <h1 className="card-title text-center mb-4">Login</h1>
+                
+                {error && (
+                  <div className="alert alert-danger" role="alert">
+                    <i className="bi bi-exclamation-triangle me-2"></i>
+                    {error}
+                  </div>
+                )}
                 
                 <form onSubmit={handleSubmit}>
                   <div className="mb-3">
@@ -58,8 +108,15 @@ function Login() {
                   </div>
                   
                   <div className="d-grid">
-                    <button type="submit" className="btn btn-primary btn-lg">
-                      Login
+                    <button type="submit" className="btn btn-primary btn-lg" disabled={loading}>
+                      {loading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                          Logging in...
+                        </>
+                      ) : (
+                        'Login'
+                      )}
                     </button>
                   </div>
                 </form>

@@ -1,6 +1,6 @@
 <?php
-require_once '../../config/database.php';
-require_once '../../utils/response.php';
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../utils/response.php';
 
 // Get request data
 $input = json_decode(file_get_contents('php://input'), true);
@@ -17,7 +17,7 @@ $email = sanitizeInput($input['email']);
 $password = $input['password'];
 
 // Find user by email
-$stmt = $pdo->prepare("SELECT user_id, first_name, last_name, email, password_hash FROM users WHERE email = ?");
+$stmt = $pdo->prepare("SELECT user_id, username, first_name, last_name, email, phone, address, password_hash FROM users WHERE email = ?");
 $stmt->execute([$email]);
 $user = $stmt->fetch();
 

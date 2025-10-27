@@ -183,7 +183,7 @@ function AdminDashboard() {
             <div className="card-body">
               <div className="d-flex justify-content-between">
                 <div>
-                  <h4>${(stats?.totalRevenue || 0).toLocaleString()}</h4>
+                  <h4>${Number(stats?.totalRevenue || 0).toLocaleString()}</h4>
                   <p className="mb-0">Total Revenue</p>
                 </div>
                 <i className="bi bi-currency-dollar fs-1"></i>
@@ -217,7 +217,7 @@ function AdminDashboard() {
                       <tr key={order.order_id}>
                         <td>#{order.order_id}</td>
                         <td>{order.first_name} {order.last_name}</td>
-                        <td>${order.total_amount.toFixed(2)}</td>
+                        <td>${Number(order.total_amount).toFixed(2)}</td>
                         <td>
                           <span className={`badge bg-${
                             order.status === 'delivered' ? 'success' : 

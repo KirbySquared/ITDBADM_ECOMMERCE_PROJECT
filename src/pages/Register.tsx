@@ -1,24 +1,81 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import './Register.css'
 
 function Register() {
   const [formData, setFormData] = useState({
+    username: '',
     firstName: '',
     lastName: '',
     email: '',
     password: '',
     confirmPassword: ''
   })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const navigate = useNavigate()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Validate password match
     if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match')
+      setError('Passwords do not match')
       return
     }
-    // Handle registration logic here
-    console.log('Registration submitted:', formData)
+
+    // Validate password length
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters long')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch('http://localhost:8000/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          username: formData.username,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          email: formData.email,
+          password: formData.password
+        })
+      })
+
+      // Check if response is ok and has content
+      const contentType = response.headers.get("content-type")
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text()
+        console.error('Non-JSON response:', text)
+        throw new Error('Server returned invalid response. Check if PHP server is running on port 8000.')
+      }
+
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Registration failed')
+      }
+
+      // Store token and user data
+      localStorage.setItem('token', data.data.token)
+      localStorage.setItem('user', JSON.stringify(data.data.user))
+      
+      // Trigger auth state change event
+      window.dispatchEvent(new Event('authStateChanged'))
+      
+      // Redirect to homepage
+      navigate('/')
+    } catch (err) {
+      console.error('Registration error:', err)
+      setError(err instanceof Error ? err.message : 'Registration failed. Please try again.')
+      setLoading(false)
+    }
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -26,6 +83,8 @@ function Register() {
       ...formData,
       [e.target.name]: e.target.value
     })
+    // Clear error when user starts typing
+    if (error) setError('')
   }
 
   return (
@@ -37,7 +96,32 @@ function Register() {
               <div className="card-body p-4">
                 <h1 className="card-title text-center mb-4">Register</h1>
                 
+                {error && (
+                  <div className="alert alert-danger" role="alert">
+                    <i className="bi bi-exclamation-triangle me-2"></i>
+                    {error}
+                  </div>
+                )}
+                
                 <form onSubmit={handleSubmit}>
+                  <div className="mb-3">
+                    <label htmlFor="username" className="form-label">Username</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      id="username"
+                      name="username"
+                      value={formData.username}
+                      onChange={handleChange}
+                      required
+                      minLength={3}
+                      maxLength={20}
+                      pattern="[a-zA-Z0-9_]+"
+                      title="Username can only contain letters, numbers, and underscores"
+                    />
+                    <small className="text-muted">Username can only contain letters, numbers, and underscores (3-20 characters)</small>
+                  </div>
+                  
                   <div className="row">
                     <div className="col-md-6 mb-3">
                       <label htmlFor="firstName" className="form-label">First Name</label>
@@ -105,8 +189,15 @@ function Register() {
                   </div>
                   
                   <div className="d-grid">
-                    <button type="submit" className="btn btn-primary btn-lg">
-                      Register
+                    <button type="submit" className="btn btn-primary btn-lg" disabled={loading}>
+                      {loading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                          Creating account...
+                        </>
+                      ) : (
+                        'Register'
+                      )}
                     </button>
                   </div>
                 </form>
