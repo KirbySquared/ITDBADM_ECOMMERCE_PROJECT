@@ -17,6 +17,7 @@ if (empty(DB_PASS)) {
 }
 
 echo "Attempting to connect...\n";
+echo "Note: Make sure MySQL Workbench is connected and maintaining the SSH tunnel\n\n";
 
 try {
     // Test the connection
@@ -54,10 +55,12 @@ try {
 } catch (PDOException $e) {
     echo "❌ Database connection failed: " . $e->getMessage() . "\n";
     echo "\nTroubleshooting tips:\n";
-    echo "1. Make sure you've established the SSH tunnel:\n";
-    echo "   ssh -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010\n";
-    echo "2. Check if the database 'electronics_store' exists on the remote server\n";
-    echo "3. Verify your password is correct in config/database.php\n";
-    echo "4. Make sure the remote MySQL server is running\n";
+    echo "1. Make sure MySQL Workbench is open and connected to the server\n";
+    echo "2. Check if MySQL Workbench's SSH tunnel is active (green icon)\n";
+    echo "3. Verify the connection string: student1@127.0.0.1::3306\n";
+    echo "4. Check if the database 'electronics_store' exists on the remote server\n";
+    echo "5. Verify your password is correct in config/database.php\n";
+    echo "6. If MySQL Workbench is not connected, you can use SSH tunnel manually:\n";
+    echo "   ssh -L 3306:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010\n";
 }
 ?>

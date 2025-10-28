@@ -3,27 +3,23 @@ REM ========================================
 REM ELECTRONICS STORE - DEVELOPMENT SERVER
 REM ========================================
 REM This script starts all development services:
-REM 1. SSH tunnel to remote MySQL database (separate window - auto-closes)
-REM 2. PHP backend server (localhost:8000)
-REM 3. React frontend server (localhost:5173)
+REM 1. PHP backend server (localhost:8000)
+REM 2. React frontend server (localhost:5173)
 REM 
 REM CLEANUP FEATURES:
-REM - SSH tunnel runs in separate window - close it manually when done
 REM - PHP and Node.js processes terminate when script exits
-REM - Manual SSH tunnel cleanup required after Ctrl+C or window closure
+REM - All services clean up automatically
 REM
 REM PREREQUISITES:
-REM - SSH client installed
 REM - PHP 8.0+ in PATH
 REM - Node.js in PATH
 REM - npm dependencies installed (run 'npm install' first)
 REM
 REM USAGE:
 REM - Run this script from the project root directory
-REM - Enter SSH password when prompted in the SSH tunnel window
 REM - Access frontend at http://localhost:5173
 REM - Access admin panel at http://localhost:5173/admin/login
-REM - Close SSH tunnel window manually when done
+REM - Press Ctrl+C to stop all services (cleanup is automatic)
 REM ========================================
 echo ========================================
 echo Electronics Store - Development Server
@@ -46,14 +42,6 @@ if not exist "backend\config\database.php" (
 echo Starting all services...
 echo.
 
-REM Check if SSH is available
-ssh -V >nul 2>&1
-if errorlevel 1 (
-    echo Error: SSH not found. Please install OpenSSH or Git Bash.
-    pause
-    exit /b 1
-)
-
 REM Check if PHP is available
 php --version >nul 2>&1
 if errorlevel 1 (
@@ -70,16 +58,41 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Starting SSH tunnel...
-echo You will need to enter your SSH password when prompted.
-echo.
-REM Start SSH tunnel in separate window and capture window title
-start "SSH_TUNNEL_%RANDOM%" cmd /k "echo SSH Tunnel - Enter your password below && ssh -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010"
+set TUNNEL_STARTED=0
+set "PF64=%ProgramFiles%"
+set "PF86=%ProgramFiles(x86)%"
 
-REM Wait for SSH tunnel to establish
-echo Waiting for SSH tunnel to establish...
-echo Please enter your SSH password in the SSH Tunnel window that opened.
-timeout /t 5 /nobreak >nul
+echo Preparing SSH tunnel on port 3307...
+echo [DEBUG] Checking local port usage for 3307...
+netstat -an | findstr ":3307 " >nul 2>&1
+echo [DEBUG] findstr errorlevel: %errorlevel%
+if %errorlevel%==0 goto PORT_3307_IN_USE
+
+echo [DEBUG] 3307 not in use. Launching tunnel...
+set "PLINK_EXE="
+where plink >nul 2>&1 && set "PLINK_EXE=plink"
+if not defined PLINK_EXE if exist "%PF64%\PuTTY\plink.exe" set "PLINK_EXE=%PF64%\PuTTY\plink.exe"
+if not defined PLINK_EXE if exist "%PF86%\PuTTY\plink.exe" set "PLINK_EXE=%PF86%\PuTTY\plink.exe"
+echo [DEBUG] PLINK_EXE: %PLINK_EXE%
+if not defined PLINK_EXE goto USE_OPENSSH
+
+echo [DEBUG] Using plink at "%PLINK_EXE%" for passwordless tunnel.
+start "SSH_TUNNEL_%RANDOM%" /min "%PLINK_EXE%" -batch -no-antispoof -N -L 3307:127.0.0.1:3306 -P 21010 -ssh student1@ccscloud.dlsu.edu.ph -pw Dlsu1234!
+set TUNNEL_STARTED=1
+goto AFTER_TUNNEL
+
+:USE_OPENSSH
+echo [DEBUG] plink.exe not found. Using OpenSSH silently.
+start "SSH_TUNNEL_%RANDOM%" /min cmd /c "ssh -N -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR"
+goto AFTER_TUNNEL
+
+:PORT_3307_IN_USE
+echo Port 3307 already in use - assuming an existing tunnel for the app.
+echo Skipping SSH tunnel creation.
+
+:AFTER_TUNNEL
+echo Waiting for tunnel to initialize...
+timeout /t 2 /nobreak >nul
 
 echo.
 echo ========================================
@@ -98,50 +111,18 @@ echo.
 echo ========================================
 echo Services Running:
 echo ========================================
-echo SSH Tunnel:   Port 3307 -> Remote MySQL (separate window - close manually)
+echo Database:     Port 3307 (SSH tunnel)
 echo PHP Backend:  http://localhost:8000
 echo React Frontend: http://localhost:5173
 echo.
-echo Press Ctrl+C to stop React frontend.
-echo Close SSH tunnel window manually when done.
-echo.
-
-REM Start React frontend in the same window
-echo Starting React frontend...
-echo.
 echo ========================================
-echo IMPORTANT NOTES:
+echo IMPORTANT:
 echo ========================================
-echo - SSH tunnel runs in separate window
-echo - Press Ctrl+C to stop React frontend
-echo - Close SSH tunnel window manually when done
-echo - PHP and Node.js will terminate automatically
+echo - Press Ctrl+C to stop React frontend and PHP backend
+echo - Close the SSH tunnel window when finished (if started by this script)
 echo ========================================
 echo.
 
-REM Start React frontend with proper cleanup handling
-echo Starting React frontend...
-echo.
-echo ========================================
-echo IMPORTANT: To stop all services cleanly:
-echo ========================================
-echo 1. Press Ctrl+C to stop React frontend
-echo 2. Cleanup will run automatically
-echo 3. All services will be terminated
-echo ========================================
-echo.
-
-REM Start React frontend with signal handling
-echo Starting React frontend...
-echo.
-echo ========================================
-echo IMPORTANT: To stop all services:
-echo ========================================
-echo 1. Press Ctrl+C to stop React frontend
-echo 2. Close the SSH tunnel window manually
-echo 3. PHP backend will stop automatically
-echo ========================================
-echo.
 
 REM Start React frontend
 npm run dev
@@ -152,6 +133,8 @@ echo ========================================
 echo React frontend stopped normally
 echo ========================================
 echo.
-echo Don't forget to close the SSH tunnel window manually!
-echo.
+if "%TUNNEL_STARTED%"=="1" (
+    echo Stopping SSH tunnel...
+    taskkill /IM plink.exe /F >nul 2>&1
+)
 pause

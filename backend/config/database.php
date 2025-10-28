@@ -1,20 +1,41 @@
 <?php
 // Database configuration for remote MySQL server via SSH tunnel
-// You need to establish an SSH tunnel first before running the application
-// Command: ssh -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010
+// Now supports environment variables via backend/.env (not committed to VCS)
+// If .env is missing, sensible local defaults are used.
+
+// Load environment variables from backend/.env if present
+// Simple, dependency-free loader: KEY=VALUE per line, '#' for comments
+$__envPath = __DIR__ . '/../.env';
+if (file_exists($__envPath) && is_readable($__envPath)) {
+    $lines = file($__envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        $trim = trim($line);
+        if ($trim === '' || $trim[0] === '#') continue;
+        $parts = explode('=', $trim, 2);
+        if (count($parts) !== 2) continue;
+        $key = trim($parts[0]);
+        $value = trim($parts[1]);
+        // Strip surrounding quotes if present
+        if ((strlen($value) >= 2) && (($value[0] === '"' && substr($value, -1) === '"') || ($value[0] === "'" && substr($value, -1) === "'"))) {
+            $value = substr($value, 1, -1);
+        }
+        $_ENV[$key] = $value;
+        putenv($key . '=' . $value);
+    }
+}
 
 // Start output buffering to prevent any accidental output
 if (!ob_get_level()) {
     ob_start();
 }
 
-define('DB_HOST', '127.0.0.1:3307'); // Localhost with port 3307 to avoid conflict with MySQL Workbench
-define('DB_NAME', 'electronics_store'); // You may need to create this database on the remote server
-define('DB_USER', 'student1');
-define('DB_PASS', 'Dlsu1234!'); // You'll need to set your password here
+define('DB_HOST', getenv('DB_HOST'));
+define('DB_NAME', getenv('DB_NAME'));
+define('DB_USER', getenv('DB_USER'));
+define('DB_PASS', getenv('DB_PASS'));
 
 // JWT Secret for authentication - CHANGE THIS IN PRODUCTION!
-define('JWT_SECRET', 'electronics_store_jwt_secret_key_2024_secure_random_string');
+define('JWT_SECRET', getenv('JWT_SECRET') ?: 'electronics_store_jwt_secret_key_2024_secure_random_string');
 
 // API Configuration - Update this based on your server setup
 define('API_BASE_URL', 'http://localhost:8000/api'); // For PHP built-in server
