@@ -139,6 +139,15 @@ echo [INFO] Please enter the password: Dlsu1234!
 echo [INFO] Connection: student1@ccscloud.dlsu.edu.ph
 echo [INFO] ========================================
 echo.
+echo [MANUAL INSTRUCTIONS]
+echo If the SSH window doesn't open, manually run this command:
+echo.
+echo   ssh -N -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010
+echo.
+echo Password: Dlsu1234!
+echo.
+echo [INFO] ========================================
+echo.
 
 REM Create a temporary batch file for the SSH tunnel
 set "SSH_TUNNEL_BAT=%TEMP%\ssh_tunnel_%RANDOM%.bat"
