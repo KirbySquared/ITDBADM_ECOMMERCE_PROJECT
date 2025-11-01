@@ -130,9 +130,41 @@ goto AFTER_TUNNEL
 
 :USE_OPENSSH
 echo [DEBUG] plink.exe not found or failed. Using Windows SSH (OpenSSH).
-echo [INFO] SSH tunnel window will open - please enter password when prompted.
-echo [INFO] Connection: student1@ccscloud.dlsu.edu.ph (password: Dlsu1234!)
-start "SSH_TUNNEL_%RANDOM%" cmd /c "ssh -N -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010 -o StrictHostKeyChecking=accept-new"
+echo.
+echo [INFO] ========================================
+echo [INFO] SSH TUNNEL WINDOW WILL OPEN
+echo [INFO] ========================================
+echo [INFO] A new window will open asking for password.
+echo [INFO] Please enter the password: Dlsu1234!
+echo [INFO] Connection: student1@ccscloud.dlsu.edu.ph
+echo [INFO] ========================================
+echo.
+
+REM Create a temporary batch file for the SSH tunnel
+set "SSH_TUNNEL_BAT=%TEMP%\ssh_tunnel_%RANDOM%.bat"
+(
+    echo @echo off
+    echo title SSH Tunnel - Password Required
+    echo echo.
+    echo echo ========================================
+    echo echo SSH Tunnel Password Required
+    echo echo ========================================
+    echo echo.
+    echo echo Connection: student1@ccscloud.dlsu.edu.ph
+    echo echo Port: 21010
+    echo echo.
+    echo echo Please enter password when prompted: Dlsu1234!
+    echo echo.
+    echo echo ========================================
+    echo echo.
+    echo ssh -N -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010 -o StrictHostKeyChecking=accept-new
+    echo echo.
+    echo echo Tunnel connection closed.
+    echo pause
+) > "%SSH_TUNNEL_BAT%"
+
+echo [INFO] Opening SSH tunnel window...
+start "SSH_TUNNEL_%RANDOM%" cmd /k ""%SSH_TUNNEL_BAT%""
 goto AFTER_TUNNEL
 
 :PORT_3307_IN_USE
