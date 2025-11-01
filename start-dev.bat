@@ -77,34 +77,38 @@ set "PLINK_EXE="
 
 REM Try to find plink.exe in multiple locations
 echo [DEBUG] Searching for plink.exe...
-where plink >nul 2>&1 && set "PLINK_EXE=plink" && echo [DEBUG] Found plink in PATH
+where plink >nul 2>&1
+if %errorlevel%==0 (
+    for /f "delims=" %%i in ('where plink') do set "PLINK_EXE=%%i"
+    if defined PLINK_EXE echo [DEBUG] Found plink in PATH
+)
 if not defined PLINK_EXE (
-    echo [DEBUG] Checking %PF64%\PuTTY\plink.exe...
+    echo [DEBUG] Checking "%PF64%\PuTTY\plink.exe"...
     if exist "%PF64%\PuTTY\plink.exe" (
         set "PLINK_EXE=%PF64%\PuTTY\plink.exe"
-        echo [DEBUG] Found plink at %PF64%\PuTTY\plink.exe
+        echo [DEBUG] Found plink at "%PF64%\PuTTY\plink.exe"
     )
 )
 if not defined PLINK_EXE (
-    echo [DEBUG] Checking %PF86%\PuTTY\plink.exe...
+    echo [DEBUG] Checking "%PF86%\PuTTY\plink.exe"...
     if exist "%PF86%\PuTTY\plink.exe" (
         set "PLINK_EXE=%PF86%\PuTTY\plink.exe"
-        echo [DEBUG] Found plink at %PF86%\PuTTY\plink.exe
+        echo [DEBUG] Found plink at "%PF86%\PuTTY\plink.exe"
     )
 )
 REM Try direct C: drive paths as fallback
 if not defined PLINK_EXE (
-    echo [DEBUG] Checking C:\Program Files\PuTTY\plink.exe...
+    echo [DEBUG] Checking "C:\Program Files\PuTTY\plink.exe"...
     if exist "C:\Program Files\PuTTY\plink.exe" (
         set "PLINK_EXE=C:\Program Files\PuTTY\plink.exe"
-        echo [DEBUG] Found plink at C:\Program Files\PuTTY\plink.exe
+        echo [DEBUG] Found plink at "C:\Program Files\PuTTY\plink.exe"
     )
 )
 if not defined PLINK_EXE (
-    echo [DEBUG] Checking C:\Program Files (x86)\PuTTY\plink.exe...
+    echo [DEBUG] Checking "C:\Program Files (x86)\PuTTY\plink.exe"...
     if exist "C:\Program Files (x86)\PuTTY\plink.exe" (
         set "PLINK_EXE=C:\Program Files (x86)\PuTTY\plink.exe"
-        echo [DEBUG] Found plink at C:\Program Files (x86)\PuTTY\plink.exe
+        echo [DEBUG] Found plink at "C:\Program Files (x86)\PuTTY\plink.exe"
     )
 )
 
