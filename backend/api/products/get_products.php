@@ -1,58 +1,43 @@
 <?php
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
-
-// Get query parameters
-$category = $_GET['category'] ?? null;
-$page = max(1, intval($_GET['page'] ?? 1));
-$limit = min(50, max(1, intval($_GET['limit'] ?? 12)));
-$offset = ($page - 1) * $limit;
-
-// Build query
-$sql = "SELECT p.*, c.category_name, 
-               (SELECT image_url FROM product_images WHERE product_id = p.product_id AND is_primary = TRUE LIMIT 1) as primary_image_url
-        FROM products p 
-        LEFT JOIN categories c ON p.category_id = c.category_id";
-$params = [];
-
-if ($category) {
-    $sql .= " WHERE c.category_name = ?";
-    $params[] = $category;
-}
-
-$sql .= " ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
-$params[] = $limit;
-$params[] = $offset;
+header('Content-Type: application/json');
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 try {
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $products = $stmt->fetchAll();
-    
-    // Get total count for pagination
-    $countSql = "SELECT COUNT(*) FROM products p LEFT JOIN categories c ON p.category_id = c.category_id";
-    $countParams = [];
-    
-    if ($category) {
-        $countSql .= " WHERE c.category_name = ?";
-        $countParams[] = $category;
-    }
-    
-    $countStmt = $pdo->prepare($countSql);
-    $countStmt->execute($countParams);
-    $total = $countStmt->fetchColumn();
-    
-    sendResponse([
-        'products' => $products,
-        'pagination' => [
-            'page' => $page,
-            'limit' => $limit,
-            'total' => $total,
-            'pages' => ceil($total / $limit)
-        ]
-    ], 'Products retrieved successfully');
-    
-} catch (PDOException $e) {
-    sendError('Failed to retrieve products', 500);
+  $branchId = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : 0;
+  $limit    = isset($_GET['limit']) ? (int)$_GET['limit'] : 0;
+  $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+
+  $cur = $pdo->prepare("SELECT code, rate_to_php FROM currencies WHERE code=? AND is_active=1 LIMIT 1");
+  $cur->execute([$currency]);
+  $row = $cur->fetch(PDO::FETCH_ASSOC);
+  if (!$row) sendError('Invalid or inactive currency', 400);
+  $rate = (float)$row['rate_to_php'];
+
+  $base = 'price';
+  $rateSql = ($currency === 'PHP') ? "p.$base" : "ROUND(p.$base * $rate, 2)";
+  $stockSql = ($branchId > 0)
+    ? "(SELECT COALESCE(pi.stock_qty,0) FROM product_inventory pi WHERE pi.branch_id=? AND pi.product_id=p.product_id)"
+    : "(SELECT COALESCE(SUM(pi.stock_qty),0) FROM product_inventory pi WHERE pi.product_id=p.product_id)";
+
+  $sql = "
+    SELECT p.product_id, p.product_name, p.brand, p.model,
+           p.$base AS price, ? AS currency, $rateSql AS display_price,
+           (SELECT image_url FROM product_images WHERE product_id=p.product_id AND is_primary=1 ORDER BY sort_order, created_at LIMIT 1) AS primary_image_url,
+           $stockSql AS stock_quantity,
+           c.category_name, p.created_at
+    FROM products p
+    LEFT JOIN categories c ON c.category_id=p.category_id
+    ORDER BY p.created_at DESC, p.product_id DESC";
+  if ($limit > 0) $sql .= " LIMIT ".(int)$limit;
+
+  $params = ($branchId > 0) ? [$currency, $branchId] : [$currency];
+  $st = $pdo->prepare($sql);
+  $st->execute($params);
+  $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+  sendResponse(['products'=>$rows], 'OK');
+} catch (Throwable $e) {
+  sendError('Failed to retrieve products (get_products): '.$e->getMessage(), 500);
 }
-?>

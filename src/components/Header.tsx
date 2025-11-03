@@ -1,63 +1,38 @@
 /**
- * DYNAMIC HEADER COMPONENT
- * 
- * This component automatically switches between admin and user headers based on:
- * 1. User authentication status (isAuthenticated)
- * 2. User role (isAdmin)
- * 3. Current route (isAdminPage)
- * 
- * HEADER TYPES:
- * - ADMIN HEADER: Shows on /admin/* pages when admin is logged in
- *   - Dark theme (bg-dark)
- *   - Admin Panel branding
- *   - Dashboard Home, View Store, Logout buttons
- * 
- * - USER HEADER: Shows on all other pages (including when admin visits store)
- *   - Light theme (bg-white)
- *   - GameStore branding
- *   - Home, Products, Cart navigation
- *   - Login/Register (when not logged in) or Profile/Logout (when logged in)
- * 
- * AUTHENTICATION:
- * - Uses useAdminAuth hook for auth state
- * - Automatically refreshes when authStateChanged event is fired
- * - Handles logout with redirection to home page
- * 
- * TO ADD NEW FEATURES:
- * - Add new navigation links in the appropriate header section
- * - Update the authentication logic if needed
- * - Modify the logout behavior in handleLogout()
- * - Add new user menu items in the user header section
+ * DYNAMIC HEADER COMPONENT (+ Currency Dropdown)
+ * - Keeps your existing admin/user logic
+ * - Adds a currency selector that updates global currency context
+ * - Admin header: dark form-select
+ * - User header: light/transparent select that matches gradient
  */
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { useCurrency } from '../context/CurrencyContext'  // ⬅️ added
 import MiniCart from './MiniCart'
 import './Header.css'
 
 function Header() {
   const { isAuthenticated, user, logout } = useAuth()
+  const { currency, setCurrency } = useCurrency()          // ⬅️ added
   const location = useLocation()
   const navigate = useNavigate()
   const [showMiniCart, setShowMiniCart] = useState(false)
   const [hoverTimeout, setHoverTimeout] = useState<number | null>(null)
   const cartButtonRef = useRef<HTMLDivElement>(null)
-  
+
   // Check if we're on an admin page
   const isAdminPage = location.pathname.startsWith('/admin')
-  
-  // Check if user is admin (from their role or by checking if they're on admin pages and authenticated)
+  // Check if user is admin
   const isAdmin = user?.role === 'admin' || (isAuthenticated && isAdminPage)
 
   // Handle logout with redirection
   const handleLogout = async () => {
     try {
       await logout()
-      // Redirect to home page after logout
       navigate('/')
     } catch (error) {
       console.error('Logout error:', error)
-      // Still redirect even if logout fails
       navigate('/')
     }
   }
@@ -73,23 +48,20 @@ function Header() {
   }
 
   const handleCartMouseLeave = () => {
-    // Only close if not hovering over modal
     setTimeout(() => {
       if (!document.querySelector('.minicart-modal:hover')) {
         setShowMiniCart(false)
       }
     }, 200)
   }
-  
+
   const handleModalMouseEnter = () => {
-    // Keep modal open when hovering over it
     if (hoverTimeout) {
       clearTimeout(hoverTimeout)
     }
   }
-  
+
   const handleModalMouseLeave = () => {
-    // Close modal with a slight delay to allow movement to cart button
     setTimeout(() => {
       setShowMiniCart(false)
     }, 300)
@@ -103,7 +75,7 @@ function Header() {
     }
   }, [hoverTimeout])
 
-  // Admin Header - automatically loads on admin dashboard pages when authenticated as admin
+  // -------------------- ADMIN HEADER --------------------
   if (isAdmin && isAuthenticated && isAdminPage) {
     return (
       <header className="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top">
@@ -112,21 +84,40 @@ function Header() {
             <i className="bi bi-shield-check me-2"></i>
             Admin Panel
           </Link>
-          
-          <button 
-            className="navbar-toggler" 
-            type="button" 
-            data-bs-toggle="collapse" 
+
+          <button
+            className="navbar-toggler"
+            type="button"
+            data-bs-toggle="collapse"
             data-bs-target="#adminNavbarNav"
-            aria-controls="adminNavbarNav" 
-            aria-expanded="false" 
+            aria-controls="adminNavbarNav"
+            aria-expanded="false"
             aria-label="Toggle navigation"
           >
             <span className="navbar-toggler-icon"></span>
           </button>
-          
+
           <div className="collapse navbar-collapse" id="adminNavbarNav">
-            <div className="navbar-nav ms-auto">
+            <div className="navbar-nav ms-auto align-items-lg-center gap-2">
+              {/* ⬇️ Currency dropdown (admin, dark theme) */}
+              <div className="d-flex align-items-center me-2">
+                <label className="me-2 text-light d-none d-lg-inline" htmlFor="adminCurrency">
+                  Currency
+                </label>
+                <select
+                  id="adminCurrency"
+                  className="form-select form-select-sm bg-dark text-light border-secondary"
+                  style={{ width: 120 }}
+                  value={currency}
+                  onChange={e => setCurrency(e.target.value as any)}
+                  aria-label="Currency selector"
+                >
+                  <option value="PHP">PHP ₱</option>
+                  <option value="USD">USD $</option>
+                  <option value="KRW">KRW ₩</option>
+                </select>
+              </div>
+
               <Link to="/admin" className="nav-link d-flex align-items-center">
                 <i className="bi bi-house-door me-1"></i>
                 Dashboard Home
@@ -135,7 +126,7 @@ function Header() {
                 <i className="bi bi-globe me-1"></i>
                 View Store
               </Link>
-              <button 
+              <button
                 className="btn btn-outline-light d-flex align-items-center"
                 onClick={handleLogout}
               >
@@ -149,27 +140,30 @@ function Header() {
     )
   }
 
-  // Regular User Header - for all non-admin pages (including when admin visits store)
+  // -------------------- USER HEADER --------------------
   return (
-    <header className="navbar navbar-expand-lg sticky-top border-bottom" style={{background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', boxShadow: '0 2px 10px rgba(0,0,0,0.1)'}}>
+    <header
+      className="navbar navbar-expand-lg sticky-top border-bottom"
+      style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}
+    >
       <div className="container">
         <Link to="/" className="navbar-brand text-white fw-bold fs-3 d-flex align-items-center">
-          <i className="bi bi-controller me-2" style={{fontSize: '1.8rem'}}></i>
-          <span style={{fontFamily: 'Arial, sans-serif', letterSpacing: '1px'}}>GameStore</span>
+          <i className="bi bi-controller me-2" style={{ fontSize: '1.8rem' }}></i>
+          <span style={{ fontFamily: 'Arial, sans-serif', letterSpacing: '1px' }}>GameStore</span>
         </Link>
-        
-        <button 
+
+        <button
           className="navbar-toggler bg-white"
-          type="button" 
-          data-bs-toggle="collapse" 
+          type="button"
+          data-bs-toggle="collapse"
           data-bs-target="#navbarNav"
-          aria-controls="navbarNav" 
-          aria-expanded="false" 
+          aria-controls="navbarNav"
+          aria-expanded="false"
           aria-label="Toggle navigation"
         >
           <span className="navbar-toggler-icon"></span>
         </button>
-        
+
         <div className="collapse navbar-collapse" id="navbarNav">
           <ul className="navbar-nav me-auto">
             <li className="nav-item">
@@ -185,17 +179,46 @@ function Header() {
               </Link>
             </li>
           </ul>
-          
-          <div className="d-flex gap-2">
+
+          <div className="d-flex align-items-center gap-2">
+            {/* ⬇️ Currency dropdown (user, light/transparent style) */}
+            <div className="d-flex align-items-center me-1">
+              <label className="me-2 text-white-50 d-none d-lg-inline" htmlFor="userCurrency">
+                Currency
+              </label>
+              <select
+                id="userCurrency"
+                value={currency}
+                onChange={e => setCurrency(e.target.value as any)}
+                aria-label="Currency selector"
+                className="form-select form-select-sm"
+                style={{
+                  width: 120,
+                  background: 'rgba(255,255,255,0.15)',
+                  color: 'white',
+                  borderColor: 'rgba(255,255,255,0.35)'
+                }}
+              >
+                <option value="PHP">PHP ₱</option>
+                <option value="USD">USD $</option>
+                <option value="KRW">KRW ₩</option>
+              </select>
+              <span className="badge bg-light text-dark ms-2">{currency}</span>
+            </div>
+
             {isAuthenticated ? (
-              // Show user menu when logged in (for both regular users and admins on store pages)
               <>
-                <Link to="/profile" className="btn profile-btn" style={{background: 'transparent', border: '1px solid rgba(255, 255, 255, 0.2)', color: 'white'}}>
+                <Link
+                  to="/profile"
+                  className="btn profile-btn"
+                  style={{ background: 'transparent', border: '1px solid rgba(255, 255, 255, 0.2)', color: 'white' }}
+                >
                   <i className="bi bi-person-circle me-1"></i>
                   Profile
                 </Link>
+
                 <div className="position-relative">
-                  <div 
+                  <div
                     ref={cartButtonRef}
                     className="cart-button-wrapper d-flex align-items-center"
                     onMouseEnter={handleCartMouseEnter}
@@ -212,7 +235,8 @@ function Header() {
                     </Link>
                   </div>
                 </div>
-                <button 
+
+                <button
                   className="btn btn-outline-light border-2"
                   onClick={handleLogout}
                 >
@@ -221,7 +245,6 @@ function Header() {
                 </button>
               </>
             ) : (
-              // Show login/register when not logged in
               <>
                 <Link to="/login" className="btn btn-light">
                   <i className="bi bi-box-arrow-in-right me-1"></i>
@@ -236,13 +259,12 @@ function Header() {
           </div>
         </div>
       </div>
-      
+
       {/* Mini Cart Modal */}
-      <MiniCart 
-        show={showMiniCart} 
+      <MiniCart
+        show={showMiniCart}
         onHide={() => setShowMiniCart(false)}
         onCartUpdate={() => {
-          // Dispatch event to update cart count in header
           window.dispatchEvent(new Event('cartUpdated'))
         }}
         onMouseEnter={handleModalMouseEnter}
