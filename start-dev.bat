@@ -70,6 +70,7 @@ set TUNNEL_STARTED=0
 set "PF64=%ProgramFiles%"
 set "PF86=%ProgramFiles(x86)%"
 
+<<<<<<< HEAD
 echo Preparing SSH tunnel on port %LOCAL_PORT%...
 echo [DEBUG] ProgramFiles=%ProgramFiles%
 echo [DEBUG] ProgramFiles(x86)=%ProgramFiles(x86)%
@@ -77,11 +78,17 @@ echo [DEBUG] PF64=%PF64%
 echo [DEBUG] PF86=%PF86%
 echo [DEBUG] Checking local port usage for %LOCAL_PORT%...
 netstat -an | findstr ":%LOCAL_PORT% " >nul 2>&1
+=======
+echo Preparing SSH tunnel on port 3307...
+echo [DEBUG] Checking local port usage for 3307...
+netstat -an | findstr ":3307 " >nul 2>&1
+>>>>>>> parent of 5fedfc5 (Update start-dev.bat)
 echo [DEBUG] findstr errorlevel: %errorlevel%
 if %errorlevel%==0 goto PORT_3307_IN_USE
 
 echo [DEBUG] %LOCAL_PORT% not in use. Launching tunnel...
 set "PLINK_EXE="
+<<<<<<< HEAD
 
 REM Try to find plink.exe in multiple locations
 echo [DEBUG] Searching for plink.exe...
@@ -133,10 +140,21 @@ if errorlevel 1 (
     echo [ERROR] Failed to start plink tunnel. Trying OpenSSH...
     goto USE_OPENSSH
 )
+=======
+where plink >nul 2>&1 && set "PLINK_EXE=plink"
+if not defined PLINK_EXE if exist "%PF64%\PuTTY\plink.exe" set "PLINK_EXE=%PF64%\PuTTY\plink.exe"
+if not defined PLINK_EXE if exist "%PF86%\PuTTY\plink.exe" set "PLINK_EXE=%PF86%\PuTTY\plink.exe"
+echo [DEBUG] PLINK_EXE: %PLINK_EXE%
+if not defined PLINK_EXE goto USE_OPENSSH
+
+echo [DEBUG] Using plink at "%PLINK_EXE%" for passwordless tunnel.
+start "SSH_TUNNEL_%RANDOM%" /min "%PLINK_EXE%" -batch -no-antispoof -N -L 3307:127.0.0.1:3306 -P 21010 -ssh student1@ccscloud.dlsu.edu.ph -pw Dlsu1234!
+>>>>>>> parent of 5fedfc5 (Update start-dev.bat)
 set TUNNEL_STARTED=1
 goto AFTER_TUNNEL
 
 :USE_OPENSSH
+<<<<<<< HEAD
 echo [DEBUG] plink.exe not found or failed. Using Windows SSH (OpenSSH).
 echo.
 echo [INFO] ========================================
@@ -184,6 +202,10 @@ set "SSH_TUNNEL_BAT=%TEMP%\ssh_tunnel_%RANDOM%.bat"
 
 echo [INFO] Opening SSH tunnel window...
 start "SSH_TUNNEL_%RANDOM%" cmd /k ""%SSH_TUNNEL_BAT%""
+=======
+echo [DEBUG] plink.exe not found. Using OpenSSH silently.
+start "SSH_TUNNEL_%RANDOM%" /min cmd /c "ssh -N -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010 -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR"
+>>>>>>> parent of 5fedfc5 (Update start-dev.bat)
 goto AFTER_TUNNEL
 
 :PORT_3307_IN_USE
