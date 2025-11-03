@@ -142,7 +142,7 @@ echo.
 echo [MANUAL INSTRUCTIONS]
 echo If the SSH window doesn't open, manually run this command:
 echo.
-echo   ssh -N -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010
+echo ssh -N -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010
 echo.
 echo Password: Dlsu1234!
 echo.

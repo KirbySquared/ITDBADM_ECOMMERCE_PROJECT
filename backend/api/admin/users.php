@@ -162,10 +162,10 @@ try {
             // Hash password
             $hashedPassword = password_hash($input['password'], PASSWORD_DEFAULT);
             
-            // Insert user
+            // Insert user - set initial status to 'inactive' (will be set to 'active' on first login)
             $stmt = $pdo->prepare("
-                INSERT INTO users (username, email, password_hash, first_name, last_name, phone, address, role) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (username, email, password_hash, first_name, last_name, phone, address, role, status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
@@ -176,14 +176,15 @@ try {
                 $input['last_name'],
                 $input['phone'] ?? null,
                 $input['address'] ?? null,
-                $input['role'] ?? 'user'
+                $input['role'] ?? 'user',
+                'inactive' // status - will be set to 'active' on login
             ]);
             
             $newUserId = $pdo->lastInsertId();
             
-            // Get created user
+            // Get created user - include status
             $stmt = $pdo->prepare("
-                SELECT user_id, username, email, first_name, last_name, phone, address, role, created_at
+                SELECT user_id, username, email, first_name, last_name, phone, address, role, status, created_at
                 FROM users WHERE user_id = ?
             ");
             $stmt->execute([$newUserId]);
