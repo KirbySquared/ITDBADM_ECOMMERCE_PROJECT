@@ -58,24 +58,21 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM SSH Tunnel Configuration (same for all users)
-set "SSH_USER=student1"
-set "SSH_HOST=ccscloud.dlsu.edu.ph"
-set "SSH_PORT=21010"
-set "SSH_PASSWORD=Dlsu1234!"
-set "LOCAL_PORT=3307"
-set "REMOTE_PORT=3306"
-
 set TUNNEL_STARTED=0
 set "PF64=%ProgramFiles%"
 set "PF86=%ProgramFiles(x86)%"
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 echo Preparing SSH tunnel on port %LOCAL_PORT%...
+=======
+echo Preparing SSH tunnel on port 3307...
+>>>>>>> parent of bb1967e (Update start-dev.bat)
 echo [DEBUG] ProgramFiles=%ProgramFiles%
 echo [DEBUG] ProgramFiles(x86)=%ProgramFiles(x86)%
 echo [DEBUG] PF64=%PF64%
 echo [DEBUG] PF86=%PF86%
+<<<<<<< HEAD
 echo [DEBUG] Checking local port usage for %LOCAL_PORT%...
 netstat -an | findstr ":%LOCAL_PORT% " >nul 2>&1
 =======
@@ -83,10 +80,14 @@ echo Preparing SSH tunnel on port 3307...
 echo [DEBUG] Checking local port usage for 3307...
 netstat -an | findstr ":3307 " >nul 2>&1
 >>>>>>> parent of 5fedfc5 (Update start-dev.bat)
+=======
+echo [DEBUG] Checking local port usage for 3307...
+netstat -an | findstr ":3307 " >nul 2>&1
+>>>>>>> parent of bb1967e (Update start-dev.bat)
 echo [DEBUG] findstr errorlevel: %errorlevel%
 if %errorlevel%==0 goto PORT_3307_IN_USE
 
-echo [DEBUG] %LOCAL_PORT% not in use. Launching tunnel...
+echo [DEBUG] 3307 not in use. Launching tunnel...
 set "PLINK_EXE="
 <<<<<<< HEAD
 
@@ -135,7 +136,7 @@ if not defined PLINK_EXE (
 )
 
 echo [DEBUG] Using plink at "%PLINK_EXE%" for passwordless tunnel.
-start "SSH_TUNNEL_%RANDOM%" /min "%PLINK_EXE%" -batch -no-antispoof -N -L %LOCAL_PORT%:127.0.0.1:%REMOTE_PORT% -P %SSH_PORT% -ssh %SSH_USER%@%SSH_HOST% -pw %SSH_PASSWORD%
+start "SSH_TUNNEL_%RANDOM%" /min "%PLINK_EXE%" -batch -no-antispoof -N -L 3307:127.0.0.1:3306 -P 21010 -ssh student1@ccscloud.dlsu.edu.ph -pw Dlsu1234!
 if errorlevel 1 (
     echo [ERROR] Failed to start plink tunnel. Trying OpenSSH...
     goto USE_OPENSSH
@@ -161,18 +162,16 @@ echo [INFO] ========================================
 echo [INFO] SSH TUNNEL WINDOW WILL OPEN
 echo [INFO] ========================================
 echo [INFO] A new window will open asking for password.
-echo [INFO] Please enter the password: %SSH_PASSWORD%
-echo [INFO] Connection: %SSH_USER%@%SSH_HOST%
+echo [INFO] Please enter the password: Dlsu1234!
+echo [INFO] Connection: student1@ccscloud.dlsu.edu.ph
 echo [INFO] ========================================
 echo.
 echo [MANUAL INSTRUCTIONS]
-echo If the SSH window doesn't open or port %LOCAL_PORT% is busy:
+echo If the SSH window doesn't open, manually run this command:
 echo.
-echo OPTION 1 - Basic tunnel (if port %LOCAL_PORT% is free):
-echo   ssh -L %LOCAL_PORT%:127.0.0.1:%REMOTE_PORT% %SSH_USER%@%SSH_HOST% -p %SSH_PORT%
+echo   ssh -N -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010
 echo.
-echo.
-echo Password: %SSH_PASSWORD%
+echo Password: Dlsu1234!
 echo.
 echo [INFO] ========================================
 echo.
@@ -187,14 +186,14 @@ set "SSH_TUNNEL_BAT=%TEMP%\ssh_tunnel_%RANDOM%.bat"
     echo echo SSH Tunnel Password Required
     echo echo ========================================
     echo echo.
-    echo echo Connection: %SSH_USER%@%SSH_HOST%
-    echo echo Port: %SSH_PORT%
+    echo echo Connection: student1@ccscloud.dlsu.edu.ph
+    echo echo Port: 21010
     echo echo.
-    echo echo Please enter password when prompted: %SSH_PASSWORD%
+    echo echo Please enter password when prompted: Dlsu1234!
     echo echo.
     echo echo ========================================
     echo echo.
-    echo ssh -N -L %LOCAL_PORT%:127.0.0.1:%REMOTE_PORT% %SSH_USER%@%SSH_HOST% -p %SSH_PORT% -o StrictHostKeyChecking=accept-new
+    echo ssh -N -L 3307:127.0.0.1:3306 student1@ccscloud.dlsu.edu.ph -p 21010 -o StrictHostKeyChecking=accept-new
     echo echo.
     echo echo Tunnel connection closed.
     echo pause
@@ -209,7 +208,7 @@ start "SSH_TUNNEL_%RANDOM%" /min cmd /c "ssh -N -L 3307:127.0.0.1:3306 student1@
 goto AFTER_TUNNEL
 
 :PORT_3307_IN_USE
-echo Port %LOCAL_PORT% already in use - assuming an existing tunnel for the app.
+echo Port 3307 already in use - assuming an existing tunnel for the app.
 echo Skipping SSH tunnel creation.
 
 :AFTER_TUNNEL
@@ -233,7 +232,7 @@ echo.
 echo ========================================
 echo Services Running:
 echo ========================================
-echo Database:     Port %LOCAL_PORT% (SSH tunnel)
+echo Database:     Port 3307 (SSH tunnel)
 echo PHP Backend:  http://localhost:8000
 echo React Frontend: http://localhost:5173
 echo.
