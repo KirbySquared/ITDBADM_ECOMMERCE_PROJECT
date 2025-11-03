@@ -65,7 +65,11 @@ set "PF86=%ProgramFiles(x86)%"
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 echo Preparing SSH tunnel on port %LOCAL_PORT%...
+=======
+echo Preparing SSH tunnel on port 3307...
+>>>>>>> parent of bb1967e (Update start-dev.bat)
 =======
 echo Preparing SSH tunnel on port 3307...
 >>>>>>> parent of bb1967e (Update start-dev.bat)
@@ -78,6 +82,7 @@ echo [DEBUG] PF64=%PF64%
 echo [DEBUG] PF86=%PF86%
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 echo [DEBUG] Checking local port usage for %LOCAL_PORT%...
 netstat -an | findstr ":%LOCAL_PORT% " >nul 2>&1
 =======
@@ -85,6 +90,10 @@ echo Preparing SSH tunnel on port 3307...
 echo [DEBUG] Checking local port usage for 3307...
 netstat -an | findstr ":3307 " >nul 2>&1
 >>>>>>> parent of 5fedfc5 (Update start-dev.bat)
+=======
+echo [DEBUG] Checking local port usage for 3307...
+netstat -an | findstr ":3307 " >nul 2>&1
+>>>>>>> parent of bb1967e (Update start-dev.bat)
 =======
 echo [DEBUG] Checking local port usage for 3307...
 netstat -an | findstr ":3307 " >nul 2>&1
