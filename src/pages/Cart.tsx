@@ -18,18 +18,16 @@ function Cart() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<number | null>(null)
+  const [locking, setLocking] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
     fetchCart()
-    
-    // Listen for cart update events
-    const handleCartUpdate = () => {
-      fetchCart()
-    }
-    
+
+    const handleCartUpdate = () => fetchCart()
     window.addEventListener('cartUpdated', handleCartUpdate)
     return () => window.removeEventListener('cartUpdated', handleCartUpdate)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchCart = async () => {
@@ -37,7 +35,6 @@ function Cart() {
     try {
       const token = localStorage.getItem('token')
       if (!token) {
-        // Redirect to login if not authenticated
         navigate('/login')
         return
       }
@@ -50,17 +47,28 @@ function Cart() {
       })
 
       if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          setCartItems(data.data.items || [])
-          setTotal(data.data.total || 0)
+        const data = await response.json().catch(() => ({}))
+        if (data?.success) {
+          // 👇 THIS IS THE SPOT
+          setCartItems(data.data?.items || [])
+          setTotal(data.data?.total || 0)
+        } else {
+          console.error('Cart error:', data?.message || 'Unknown error')
+          setCartItems([])
+          setTotal(0)
         }
       } else if (response.status === 401) {
-        // Token expired, redirect to login
         navigate('/login')
+      } else {
+        const text = await response.text()
+        console.error('Cart fetch failed:', response.status, text)
+        setCartItems([])
+        setTotal(0)
       }
     } catch (err) {
       console.error('Error fetching cart:', err)
+      setCartItems([])
+      setTotal(0)
     } finally {
       setLoading(false)
     }
@@ -75,21 +83,25 @@ function Cart() {
     setUpdating(cartId)
     try {
       const token = localStorage.getItem('token')
+      if (!token) return navigate('/login')
+
       const response = await fetch('http://localhost:8000/api/cart', {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          cart_id: cartId,
-          quantity: newQuantity
-        })
+        body: JSON.stringify({ cart_id: cartId, quantity: newQuantity })
       })
 
       if (response.ok) {
         fetchCart()
         window.dispatchEvent(new Event('cartUpdated'))
+      } else if (response.status === 401) {
+        navigate('/login')
+      } else {
+        const text = await response.text()
+        console.error('Update qty failed:', response.status, text)
       }
     } catch (err) {
       console.error('Error updating quantity:', err)
@@ -102,6 +114,8 @@ function Cart() {
     setUpdating(cartId)
     try {
       const token = localStorage.getItem('token')
+      if (!token) return navigate('/login')
+
       const response = await fetch('http://localhost:8000/api/cart', {
         method: 'DELETE',
         headers: {
@@ -114,6 +128,11 @@ function Cart() {
       if (response.ok) {
         fetchCart()
         window.dispatchEvent(new Event('cartUpdated'))
+      } else if (response.status === 401) {
+        navigate('/login')
+      } else {
+        const text = await response.text()
+        console.error('Remove failed:', response.status, text)
       }
     } catch (err) {
       console.error('Error removing item:', err)
@@ -122,8 +141,43 @@ function Cart() {
     }
   }
 
-  const getCurrency = () => {
-    return cartItems[0]?.currency || 'USD'
+  const getCurrency = () => cartItems[0]?.currency || 'USD'
+
+  // Currency lock + navigate to checkout
+  const lockRateAndGo = async () => {
+    if (cartItems.length === 0) return
+    setLocking(true)
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        navigate('/login')
+        return
+      }
+      const currency = getCurrency()
+
+      const res = await fetch('http://localhost:8000/api/checkout/lock-currency', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ currency })
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(()=> ({}))
+        throw new Error(err?.message || 'Failed to lock currency')
+      }
+
+      const data = await res.json()
+      sessionStorage.setItem('checkout_lock', JSON.stringify(data.data))
+      navigate('/checkout')
+    } catch (e) {
+      console.error(e)
+      alert((e as Error).message || 'Could not start checkout.')
+    } finally {
+      setLocking(false)
+    }
   }
 
   if (loading) {
@@ -174,7 +228,7 @@ function Cart() {
             <h1 className="display-4 fw-bold">Shopping Cart</h1>
           </div>
         </div>
-        
+
         <div className="row g-4">
           <div className="col-lg-8">
             <div className="card">
@@ -183,8 +237,8 @@ function Cart() {
                   <div key={item.cart_id} className="row align-items-center py-3 border-bottom">
                     <div className="col-md-2">
                       {item.image_url ? (
-                        <img 
-                          src={item.image_url} 
+                        <img
+                          src={item.image_url}
                           alt={item.product_name}
                           className="rounded"
                           style={{width: '80px', height: '80px', objectFit: 'cover'}}
@@ -197,15 +251,15 @@ function Cart() {
                         </div>
                       )}
                     </div>
-                    
+
                     <div className="col-md-4">
                       <h5 className="mb-1">{item.product_name}</h5>
                       <p className="text-primary fw-bold mb-0">{formatPrice(item.price, item.currency)}</p>
                     </div>
-                    
+
                     <div className="col-md-3">
                       <div className="d-flex align-items-center gap-2">
-                        <button 
+                        <button
                           className="btn btn-outline-secondary btn-sm"
                           onClick={() => updateQuantity(item.cart_id, item.quantity - 1)}
                           disabled={updating === item.cart_id}
@@ -213,7 +267,7 @@ function Cart() {
                           {updating === item.cart_id ? <span className="spinner-border spinner-border-sm"></span> : '-'}
                         </button>
                         <span className="fw-bold">{item.quantity}</span>
-                        <button 
+                        <button
                           className="btn btn-outline-secondary btn-sm"
                           onClick={() => updateQuantity(item.cart_id, item.quantity + 1)}
                           disabled={updating === item.cart_id}
@@ -222,13 +276,13 @@ function Cart() {
                         </button>
                       </div>
                     </div>
-                    
+
                     <div className="col-md-2">
                       <p className="fw-bold mb-0">{formatPrice(item.price * item.quantity, item.currency)}</p>
                     </div>
-                    
+
                     <div className="col-md-1">
-                      <button 
+                      <button
                         className="btn btn-outline-danger btn-sm"
                         onClick={() => removeItem(item.cart_id)}
                         disabled={updating === item.cart_id}
@@ -245,12 +299,12 @@ function Cart() {
               </div>
             </div>
           </div>
-          
+
           <div className="col-lg-4">
             <div className="card">
               <div className="card-body">
                 <h5 className="card-title mb-4">Order Summary</h5>
-                
+
                 <div className="d-flex justify-content-between mb-2">
                   <span>Subtotal:</span>
                   <span>{formatPrice(total, getCurrency())}</span>
@@ -264,12 +318,20 @@ function Cart() {
                   <span className="fw-bold fs-5">Total:</span>
                   <span className="fw-bold fs-5">{formatPrice(total, getCurrency())}</span>
                 </div>
-                
+
                 <div className="d-grid">
-                  <Link to="/checkout" className="btn btn-primary btn-lg">
-                    Proceed to Checkout
-                  </Link>
+                  <button
+                    className="btn btn-primary btn-lg"
+                    onClick={lockRateAndGo}
+                    disabled={locking}
+                  >
+                    {locking ? 'Locking rate…' : 'Proceed to Checkout'}
+                  </button>
                 </div>
+
+                <p className="text-muted small mt-2 mb-0">
+                  We’ll lock today’s rate and reserve items at your selected branch on the next step.
+                </p>
               </div>
             </div>
           </div>

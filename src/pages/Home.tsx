@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'   // ✅ added useNavigate
 import { formatPrice } from '../utils/currency'
 import { useCurrency } from '../context/CurrencyContext'
 import { useBranch } from '../context/BranchContext'   // ✅ added
@@ -23,6 +23,10 @@ function Home() {
   const { branchId } = useBranch()                     // ✅ added
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+
+  // ✅ search state + navigate
+  const navigate = useNavigate()
+  const [q, setQ] = useState('')
 
   useEffect(() => {
     fetchFeaturedProducts()
@@ -106,6 +110,25 @@ function Home() {
                   <i className="bi bi-search me-2"></i> Browse Products
                 </Link>
               </div>
+
+              {/* ✅ NEW: Hero search form */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  navigate(`/products?q=${encodeURIComponent(q)}`)
+                }}
+                className="d-flex gap-2 justify-content-center mt-4"
+              >
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search games, consoles…"
+                  className="form-control form-control-lg"
+                  style={{ maxWidth: 480 }}
+                />
+                <button className="btn btn-warning btn-lg">Search</button>
+              </form>
+              {/* ✅ END search form */}
             </div>
           </div>
         </div>
