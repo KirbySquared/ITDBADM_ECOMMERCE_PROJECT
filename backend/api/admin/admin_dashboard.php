@@ -100,18 +100,33 @@ try {
         SELECT o.*, u.first_name, u.last_name, u.email 
         FROM orders o 
         JOIN users u ON o.user_id = u.user_id 
-        ORDER BY o.created_at DESC 
+        ORDER BY o.order_date DESC 
         LIMIT 10
     ");
     $stats['recentOrders'] = $stmt->fetchAll();
     
-    // Low stock products
-    $stmt = $pdo->query("SELECT * FROM products WHERE stock_quantity < 10 ORDER BY stock_quantity ASC");
+    // Low stock products - aggregate stock across all branches
+    $stmt = $pdo->query("
+        SELECT 
+            p.product_id,
+            p.product_name,
+            p.brand,
+            COALESCE(SUM(pi.stock_qty), 0) AS stock_quantity
+        FROM products p
+        LEFT JOIN product_inventory pi ON p.product_id = pi.product_id
+        GROUP BY p.product_id, p.product_name, p.brand
+        HAVING COALESCE(SUM(pi.stock_qty), 0) < 10
+        ORDER BY stock_quantity ASC
+    ");
     $stats['lowStockProducts'] = $stmt->fetchAll();
     
     sendResponse($stats, 'Admin dashboard data retrieved successfully');
     
 } catch (PDOException $e) {
-    sendError('Failed to retrieve admin dashboard data', 500);
+    error_log('Dashboard PDO Error: ' . $e->getMessage());
+    sendError('Failed to retrieve admin dashboard data: ' . $e->getMessage(), 500);
+} catch (Throwable $e) {
+    error_log('Dashboard Error: ' . $e->getMessage());
+    sendError('Failed to retrieve admin dashboard data: ' . $e->getMessage(), 500);
 }
 ?>

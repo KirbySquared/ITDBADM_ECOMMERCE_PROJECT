@@ -73,11 +73,11 @@ function AdminSidebar({ currentPath }: AdminSidebarProps) {
         </Link>
         
         <Link 
-          to="/" 
-          className="nav-link mt-3"
+          to="/admin/branches" 
+          className={`nav-link ${activePath.startsWith('/admin/branches') ? 'active' : ''}`}
         >
-          <i className="bi bi-globe me-2"></i>
-          View Store
+          <i className="bi bi-shop me-2"></i>
+          Branches
         </Link>
       </nav>
     </div>

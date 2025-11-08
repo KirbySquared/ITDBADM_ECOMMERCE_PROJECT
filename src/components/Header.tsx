@@ -99,25 +99,6 @@ function Header() {
 
           <div className="collapse navbar-collapse" id="adminNavbarNav">
             <div className="navbar-nav ms-auto align-items-lg-center gap-2">
-              {/* ⬇️ Currency dropdown (admin, dark theme) */}
-              <div className="d-flex align-items-center me-2">
-                <label className="me-2 text-light d-none d-lg-inline" htmlFor="adminCurrency">
-                  Currency
-                </label>
-                <select
-                  id="adminCurrency"
-                  className="form-select form-select-sm bg-dark text-light border-secondary"
-                  style={{ width: 120 }}
-                  value={currency}
-                  onChange={e => setCurrency(e.target.value as any)}
-                  aria-label="Currency selector"
-                >
-                  <option value="PHP">PHP ₱</option>
-                  <option value="USD">USD $</option>
-                  <option value="KRW">KRW ₩</option>
-                </select>
-              </div>
-
               <Link to="/admin" className="nav-link d-flex align-items-center">
                 <i className="bi bi-house-door me-1"></i>
                 Dashboard Home

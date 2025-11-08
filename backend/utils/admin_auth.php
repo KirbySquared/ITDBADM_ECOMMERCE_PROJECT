@@ -1,9 +1,13 @@
 <?php
 // Admin authentication middleware
-require_once '../config/database.php';
-require_once '../utils/response.php';
+// Use __DIR__ to ensure paths work regardless of where this file is included from
+// require_once will prevent duplicate includes
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../utils/response.php';
 
 function requireAdminAuth() {
+    global $pdo; // Access global $pdo variable from database.php
+    
     // Get authorization header
     $headers = getallheaders();
     $token = null;
@@ -39,6 +43,8 @@ function requireAdminAuth() {
 }
 
 function requireAdminAuthWeb() {
+    global $pdo; // Access global $pdo variable from database.php
+    
     // For web-based admin panel (session-based)
     session_start();
     

@@ -137,6 +137,14 @@ switch ($path) {
         }
         break;
         
+    case 'branches':
+        if ($method === 'GET') {
+            include 'branches/index.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
     case 'cart':
         if ($method === 'GET') {
             include 'cart/get_cart.php';
@@ -158,6 +166,7 @@ switch ($path) {
     case 'admin/logout':
     case 'admin/users':
     case 'admin/categories':
+    case 'admin/branches':
     case 'admin/products':
     case 'admin/orders':
         // Route admin requests to admin router
@@ -166,8 +175,8 @@ switch ($path) {
         break;
         
     default:
-        // Check if it's an admin route with ID (e.g., admin/users/123, admin/products/123/images, admin/orders/123)
-        if (preg_match('/^admin\/(users|categories|products|orders)\/\d+$/', $path) || 
+        // Check if it's an admin route with ID (e.g., admin/users/123, admin/products/123/images, admin/orders/123, admin/branches/123)
+        if (preg_match('/^admin\/(users|categories|branches|products|orders)\/\d+$/', $path) || 
             preg_match('/^admin\/products\/\d+\/images/', $path)) {
             error_log("Routing to admin API for path: " . $path);
             include 'admin/index.php';

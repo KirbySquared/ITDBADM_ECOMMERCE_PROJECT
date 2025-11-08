@@ -43,6 +43,8 @@ interface Product {
     created_at: string
   }>
   category_name: string
+  branch_id?: number
+  branch_name?: string
   created_at: string
   updated_at?: string
 }
@@ -53,9 +55,17 @@ interface Category {
 }
 
 
+interface Branch {
+  branch_id: number
+  branch_name: string
+  address?: string
+}
+
 function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [selectedBranchId, setSelectedBranchId] = useState<number>(1) // Default to branch 1
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -87,6 +97,28 @@ function AdminProducts() {
     }
   }
 
+  const fetchBranches = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/branches', {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setBranches(data.data.branches)
+        // Set default branch if available
+        if (data.data.branches.length > 0 && !selectedBranchId) {
+          setSelectedBranchId(data.data.branches[0].branch_id)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch branches:', err)
+    }
+  }
+
   const fetchProducts = async () => {
     try {
       setLoading(true)
@@ -98,7 +130,8 @@ function AdminProducts() {
 
       const params = new URLSearchParams({
         page: currentPage.toString(),
-        limit: '10'
+        limit: '10',
+        branch_id: selectedBranchId.toString()
       })
       
       if (searchTerm) params.append('search', searchTerm)
@@ -129,11 +162,12 @@ function AdminProducts() {
 
   useEffect(() => {
     fetchCategories()
+    fetchBranches()
   }, [])
 
   useEffect(() => {
     fetchProducts()
-  }, [currentPage])
+  }, [currentPage, selectedBranchId])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -153,9 +187,34 @@ function AdminProducts() {
     setShowModal(true)
   }
 
-  const handleEditProduct = (product: Product) => {
-    setSelectedProduct(product)
-    setShowModal(true)
+  const handleEditProduct = async (product: Product) => {
+    try {
+      // Fetch full product details - will use branch_id from product_inventory
+      const token = localStorage.getItem('token')
+      if (!token) {
+        setError('No authentication token found')
+        return
+      }
+
+      // Try to get product with the selected branch, but backend will use actual branch_id from inventory
+      const response = await fetch(`http://localhost:8000/api/admin/products/${product.product_id}?branch_id=${selectedBranchId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setSelectedProduct(data.data)
+        setShowModal(true)
+      } else {
+        setError(data.message || 'Failed to fetch product details')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch product details')
+    }
   }
 
   const handleSaveProduct = async (productData: Omit<Product, 'product_id' | 'category_name' | 'created_at' | 'updated_at'>) => {
@@ -167,9 +226,15 @@ function AdminProducts() {
 
       const url = selectedProduct 
         ? `http://localhost:8000/api/admin/products/${selectedProduct.product_id}`
-        : 'http://localhost:8000/api/admin/products'
+        : `http://localhost:8000/api/admin/products?branch_id=${selectedBranchId}`
       
       const method = selectedProduct ? 'PUT' : 'POST'
+
+      // For new products, use selected branch. For updates, use branch_id from product data (from inventory)
+      const productDataWithBranch = {
+        ...productData,
+        branch_id: selectedProduct && productData.branch_id ? productData.branch_id : selectedBranchId
+      }
 
       const response = await fetch(url, {
         method,
@@ -177,7 +242,7 @@ function AdminProducts() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(productData)
+        body: JSON.stringify(productDataWithBranch)
       })
 
       const data = await response.json()
@@ -248,9 +313,17 @@ function AdminProducts() {
         </button>
       </div>
 
+      {error && (
+        <div className="alert alert-danger alert-dismissible fade show" role="alert">
+          <i className="bi bi-exclamation-triangle me-2"></i>
+          {error}
+          <button type="button" className="btn-close" onClick={() => setError(null)} aria-label="Close"></button>
+        </div>
+      )}
+
           {/* Search and Filters */}
           <form onSubmit={handleSearch}>
-            <div className="row mb-4">
+            <div className="row mb-3">
               <div className="col-md-4">
                 <div className="input-group">
                   <span className="input-group-text">
@@ -306,6 +379,29 @@ function AdminProducts() {
                 </button>
               </div>
             </div>
+            <div className="row mb-4">
+              <div className="col-md-4">
+                <label className="form-label">Filter by Branch</label>
+                <select
+                  className="form-select"
+                  value={selectedBranchId}
+                  onChange={(e) => {
+                    setSelectedBranchId(Number(e.target.value))
+                    setCurrentPage(1)
+                  }}
+                >
+                  {branches.map(branch => (
+                    <option key={branch.branch_id} value={branch.branch_id}>
+                      {branch.branch_name}
+                    </option>
+                  ))}
+                </select>
+                <div className="form-text">
+                  <i className="bi bi-info-circle me-1"></i>
+                  Select a branch to view and manage products for that branch
+                </div>
+              </div>
+            </div>
           </form>
 
       {/* Products Table */}
@@ -319,7 +415,13 @@ function AdminProducts() {
                   <th>Product Name</th>
                   <th>Brand</th>
                   <th>Price & Currency</th>
-                  <th>Stock</th>
+                  <th>
+                    Stock
+                    <small className="text-muted d-block" style={{fontSize: '0.7rem', fontWeight: 'normal'}}>
+                      ({branches.find(b => b.branch_id === selectedBranchId)?.branch_name || 'Branch'})
+                    </small>
+                  </th>
+                  <th>Branch</th>
                   <th>Category</th>
                   <th>Images</th>
                   <th>Created</th>
@@ -358,13 +460,22 @@ function AdminProducts() {
                       </div>
                     </td>
                     <td>{product.brand}</td>
-                    <td>{formatPrice(product.price, product.currency)}</td>
+                    <td>
+                      {product.price && product.currency 
+                        ? formatPrice(Number(product.price), product.currency) 
+                        : 'N/A'}
+                    </td>
                     <td>
                       <span className={`badge ${
-                        product.stock_quantity < 10 ? 'bg-danger' : 
-                        product.stock_quantity < 20 ? 'bg-warning' : 'bg-success'
+                        (product.stock_quantity ?? 0) < 10 ? 'bg-danger' : 
+                        (product.stock_quantity ?? 0) < 20 ? 'bg-warning' : 'bg-success'
                       }`}>
-                        {product.stock_quantity}
+                        {product.stock_quantity ?? 0}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge bg-info">
+                        {product.branch_name || `Branch #${product.branch_id || selectedBranchId}`}
                       </span>
                     </td>
                     <td>{product.category_name}</td>

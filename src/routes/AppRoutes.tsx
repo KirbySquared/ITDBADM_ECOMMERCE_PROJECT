@@ -37,6 +37,7 @@ import AdminProducts from '../pages/AdminProducts'
 import AdminOrders from '../pages/AdminOrders'
 import AdminUsers from '../pages/AdminUsers'
 import AdminCategories from '../pages/AdminCategories'
+import AdminBranches from '../pages/AdminBranches'
 import AdminRoute from '../components/AdminRoute'
 
 function AppRoutes() {
@@ -82,6 +83,12 @@ function AppRoutes() {
       <Route path="/admin/categories" element={
         <AdminRoute>
           <AdminCategories />
+        </AdminRoute>
+      } />
+      
+      <Route path="/admin/branches" element={
+        <AdminRoute>
+          <AdminBranches />
         </AdminRoute>
       } />
     </Routes>

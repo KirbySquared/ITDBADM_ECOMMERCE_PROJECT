@@ -23,7 +23,6 @@
  * />
  */
 import { useState, useEffect } from 'react'
-import { getCurrencyOptions } from '../utils/currency'
 import AdminProductImagesModal from './AdminProductImagesModal'
 
 interface Product {
@@ -37,6 +36,8 @@ interface Product {
   currency: string
   stock_quantity: number
   specifications?: any
+  branch_id?: number
+  branch_name?: string
   images?: Array<{
     image_id: number
     image_url: string
@@ -71,7 +72,7 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
     model: '',
     description: '',
     price: 0,
-    currency: 'USD',
+    currency: 'PHP', // Default to PHP (base currency)
     stock_quantity: 0,
     specifications: {},
   })
@@ -82,7 +83,13 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
 
   useEffect(() => {
     if (product) {
-      setFormData(product)
+      setFormData({
+        ...product,
+        price: product.price ? Number(product.price) : 0,
+        stock_quantity: product.stock_quantity ? Number(product.stock_quantity) : 0,
+        currency: product.currency || 'PHP', // Default to PHP (base currency)
+        branch_id: product.branch_id // Include branch_id from product_inventory
+      })
       // Convert specifications object to JSON string for editing
       setSpecificationsText(product.specifications ? JSON.stringify(product.specifications, null, 2) : '')
     } else {
@@ -93,7 +100,7 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
         model: '',
         description: '',
         price: 0,
-        currency: 'USD',
+        currency: 'PHP', // Default to PHP (base currency)
         stock_quantity: 0,
         specifications: {}
       })
@@ -188,7 +195,15 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
     setLoading(true)
     try {
       // Prepare data for saving (exclude fields that shouldn't be sent)
-      const { product_id, category_name, created_at, updated_at, ...saveData } = formData
+      // Keep branch_id for proper inventory management
+      const { product_id, category_name, created_at, updated_at, branch_name, images, ...saveData } = formData
+      
+      // Ensure branch_id is included for inventory management
+      // When editing, use the branch_id from the product's inventory (from product_inventory table)
+      // When creating, branch_id will be set by the parent component based on selected branch
+      if (formData.branch_id) {
+        saveData.branch_id = formData.branch_id
+      }
       
       await onSave(saveData)
       onHide()
@@ -208,7 +223,18 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
           <div className="modal-content">
             <div className="modal-header">
               <h5 className="modal-title">
-                {product ? 'Edit Product' : 'Add New Product'}
+                {product ? (
+                  <>
+                    Edit Product
+                    {product.branch_name && (
+                      <small className="text-muted ms-2">
+                        ({product.branch_name})
+                      </small>
+                    )}
+                  </>
+                ) : (
+                  'Add New Product'
+                )}
               </h5>
               <button type="button" className="btn-close" onClick={onHide}></button>
             </div>
@@ -306,13 +332,15 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
                       onChange={handleChange}
                       required
                     >
-                      {getCurrencyOptions().map(option => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                      <option value="PHP">PHP ₱</option>
+                      <option value="USD">USD $</option>
+                      <option value="KRW">KRW ₩</option>
                     </select>
                     {errors.currency && <div className="invalid-feedback">{errors.currency}</div>}
+                    <div className="form-text">
+                      <i className="bi bi-info-circle me-1"></i>
+                      Price will be converted to PHP (base currency) for storage
+                    </div>
                   </div>
                   
                   <div className="col-md-4 mb-3">
@@ -328,6 +356,24 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
                       required
                     />
                     {errors.stock_quantity && <div className="invalid-feedback">{errors.stock_quantity}</div>}
+                    {product && formData.branch_id && product.branch_name && (
+                      <div className="form-text">
+                        <i className="bi bi-info-circle me-1"></i>
+                        Stock quantity for <strong>{product.branch_name}</strong> (Branch ID: {formData.branch_id})
+                      </div>
+                    )}
+                    {product && !formData.branch_id && (
+                      <div className="form-text text-warning">
+                        <i className="bi bi-exclamation-triangle me-1"></i>
+                        No branch assigned. Stock will be set for the first available branch.
+                      </div>
+                    )}
+                    {!product && (
+                      <div className="form-text">
+                        <i className="bi bi-info-circle me-1"></i>
+                        Stock quantity will be set for the selected branch
+                      </div>
+                    )}
                   </div>
                 </div>
                 
