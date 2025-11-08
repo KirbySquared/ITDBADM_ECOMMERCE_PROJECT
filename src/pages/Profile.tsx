@@ -11,6 +11,8 @@ interface User {
   last_name: string
   phone?: string
   address?: string
+  branch_id?: number
+  branch_name?: string
 }
 
 function Profile() {
@@ -145,6 +147,18 @@ function Profile() {
                   <div className="info-item">
                     <label><i className="bi bi-geo-alt me-2"></i>Address:</label>
                     <span>{user.address}</span>
+                  </div>
+                )}
+                {user.branch_name && (
+                  <div className="info-item">
+                    <label><i className="bi bi-shop me-2"></i>Nearest Branch:</label>
+                    <span>{user.branch_name}</span>
+                  </div>
+                )}
+                {!user.branch_name && (
+                  <div className="info-item">
+                    <label><i className="bi bi-shop me-2"></i>Nearest Branch:</label>
+                    <span className="text-muted">Not selected</span>
                   </div>
                 )}
               </div>

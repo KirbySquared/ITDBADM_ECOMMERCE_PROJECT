@@ -33,7 +33,7 @@ function Footer() {
         
         <div className="row">
           <div className="col-12 text-center">
-            <p className="text-light mb-0">&copy; 2024 GameStore. All rights reserved.</p>
+            <p className="text-light mb-0">&copy; 2025-2026 ITDBADM GameStore. All rights reserved.</p>
           </div>
         </div>
       </div>

@@ -20,6 +20,7 @@ function Header() {
   const [showMiniCart, setShowMiniCart] = useState(false)
   const [hoverTimeout, setHoverTimeout] = useState<number | null>(null)
   const cartButtonRef = useRef<HTMLDivElement>(null)
+  const currencySelectRef = useRef<HTMLSelectElement>(null)
 
   // Check if we're on an admin page
   const isAdminPage = location.pathname.startsWith('/admin')
@@ -75,6 +76,21 @@ function Header() {
     }
   }, [hoverTimeout])
 
+  // Handle currency dropdown focus/blur for better visibility
+  const handleCurrencyFocus = () => {
+    if (currencySelectRef.current) {
+      currencySelectRef.current.style.background = 'rgba(255, 255, 255, 0.95)'
+      currencySelectRef.current.style.color = '#333'
+    }
+  }
+
+  const handleCurrencyBlur = () => {
+    if (currencySelectRef.current) {
+      currencySelectRef.current.style.background = 'rgba(255,255,255,0.15)'
+      currencySelectRef.current.style.color = 'white'
+    }
+  }
+
   // -------------------- ADMIN HEADER --------------------
   if (isAdmin && isAuthenticated && isAdminPage) {
     return (
@@ -107,6 +123,29 @@ function Header() {
                 <i className="bi bi-globe me-1"></i>
                 View Store
               </Link>
+              {/* Currency dropdown for admin */}
+              <div className="d-flex align-items-center me-2">
+                <label className="me-2 text-white-50 d-none d-lg-inline" htmlFor="adminCurrency">
+                  Currency
+                </label>
+                <select
+                  id="adminCurrency"
+                  value={currency}
+                  onChange={e => setCurrency(e.target.value as any)}
+                  aria-label="Currency selector"
+                  className="form-select form-select-sm"
+                  style={{
+                    width: 120,
+                    background: '#495057',
+                    color: 'white',
+                    borderColor: '#6c757d'
+                  }}
+                >
+                  <option value="PHP">PHP ₱</option>
+                  <option value="USD">USD $</option>
+                  <option value="KRW">KRW ₩</option>
+                </select>
+              </div>
               <button
                 className="btn btn-outline-light d-flex align-items-center"
                 onClick={handleLogout}
@@ -168,9 +207,12 @@ function Header() {
                 Currency
               </label>
               <select
+                ref={currencySelectRef}
                 id="userCurrency"
                 value={currency}
                 onChange={e => setCurrency(e.target.value as any)}
+                onFocus={handleCurrencyFocus}
+                onBlur={handleCurrencyBlur}
                 aria-label="Currency selector"
                 className="form-select form-select-sm"
                 style={{
@@ -180,9 +222,9 @@ function Header() {
                   borderColor: 'rgba(255,255,255,0.35)'
                 }}
               >
-                <option value="PHP">PHP ₱</option>
-                <option value="USD">USD $</option>
-                <option value="KRW">KRW ₩</option>
+                <option value="PHP" style={{ color: '#333' }}>PHP ₱</option>
+                <option value="USD" style={{ color: '#333' }}>USD $</option>
+                <option value="KRW" style={{ color: '#333' }}>KRW ₩</option>
               </select>
               <span className="badge bg-light text-dark ms-2">{currency}</span>
             </div>

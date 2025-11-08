@@ -1,6 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import './Register.css'
+
+interface Branch {
+  branch_id: number
+  branch_name: string
+  address?: string
+}
 
 function Register() {
   const [formData, setFormData] = useState({
@@ -9,11 +15,39 @@ function Register() {
     lastName: '',
     email: '',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    branch_id: 0
   })
+  const [branches, setBranches] = useState<Branch[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadingBranches, setLoadingBranches] = useState(true)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+
+  useEffect(() => {
+    fetchBranches()
+  }, [])
+
+  const fetchBranches = async () => {
+    try {
+      setLoadingBranches(true)
+      const response = await fetch('http://localhost:8000/api/branches', {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setBranches(data.data.branches)
+      }
+    } catch (err) {
+      console.error('Failed to fetch branches:', err)
+    } finally {
+      setLoadingBranches(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,7 +78,8 @@ function Register() {
           first_name: formData.firstName,
           last_name: formData.lastName,
           email: formData.email,
-          password: formData.password
+          password: formData.password,
+          branch_id: formData.branch_id > 0 ? formData.branch_id : null
         })
       })
 
@@ -78,10 +113,10 @@ function Register() {
     }
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [e.target.name]: e.target.type === 'select-one' ? Number(e.target.value) : e.target.value
     })
     // Clear error when user starts typing
     if (error) setError('')
@@ -186,6 +221,35 @@ function Register() {
                       onChange={handleChange}
                       required
                     />
+                  </div>
+                  
+                  <div className="mb-4">
+                    <label htmlFor="branch_id" className="form-label">Nearest Branch (Optional)</label>
+                    {loadingBranches ? (
+                      <div className="form-control d-flex align-items-center">
+                        <div className="spinner-border spinner-border-sm me-2" role="status"></div>
+                        Loading branches...
+                      </div>
+                    ) : (
+                      <select
+                        className="form-select"
+                        id="branch_id"
+                        name="branch_id"
+                        value={formData.branch_id}
+                        onChange={handleChange}
+                      >
+                        <option value={0}>Select a branch (optional)</option>
+                        {branches.map(branch => (
+                          <option key={branch.branch_id} value={branch.branch_id}>
+                            {branch.branch_name} {branch.address ? `- ${branch.address}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div className="form-text">
+                      <i className="bi bi-info-circle me-1"></i>
+                      Select the branch nearest to you. You can change this later in your profile.
+                    </div>
                   </div>
                   
                   <div className="d-grid">

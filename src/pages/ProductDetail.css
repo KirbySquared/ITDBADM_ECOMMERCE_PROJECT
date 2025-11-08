@@ -108,6 +108,14 @@
   margin: 0;
 }
 
+/* Hide spinner arrows on quantity input */
+#quantity::-webkit-outer-spin-button,
+#quantity::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
 .product-actions .input-group input:focus {
   border-color: #ced4da;
   box-shadow: none;

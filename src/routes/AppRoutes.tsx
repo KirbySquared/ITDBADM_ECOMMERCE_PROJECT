@@ -39,6 +39,7 @@ import AdminUsers from '../pages/AdminUsers'
 import AdminCategories from '../pages/AdminCategories'
 import AdminBranches from '../pages/AdminBranches'
 import AdminRoute from '../components/AdminRoute'
+import { AdminNotificationProvider } from '../context/AdminNotificationContext'
 
 function AppRoutes() {
   return (
@@ -57,38 +58,50 @@ function AppRoutes() {
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/admin" element={
         <AdminRoute>
-          <AdminDashboard />
+          <AdminNotificationProvider>
+            <AdminDashboard />
+          </AdminNotificationProvider>
         </AdminRoute>
       } />
       
       {/* Admin Management Routes */}
       <Route path="/admin/products" element={
         <AdminRoute>
-          <AdminProducts />
+          <AdminNotificationProvider>
+            <AdminProducts />
+          </AdminNotificationProvider>
         </AdminRoute>
       } />
       
       <Route path="/admin/orders" element={
         <AdminRoute>
-          <AdminOrders />
+          <AdminNotificationProvider>
+            <AdminOrders />
+          </AdminNotificationProvider>
         </AdminRoute>
       } />
       
       <Route path="/admin/users" element={
         <AdminRoute>
-          <AdminUsers />
+          <AdminNotificationProvider>
+            <AdminUsers />
+          </AdminNotificationProvider>
         </AdminRoute>
       } />
       
       <Route path="/admin/categories" element={
         <AdminRoute>
-          <AdminCategories />
+          <AdminNotificationProvider>
+            <AdminCategories />
+          </AdminNotificationProvider>
         </AdminRoute>
       } />
       
       <Route path="/admin/branches" element={
         <AdminRoute>
-          <AdminBranches />
+          <AdminNotificationProvider>
+            <AdminBranches />
+          </AdminNotificationProvider>
         </AdminRoute>
       } />
     </Routes>

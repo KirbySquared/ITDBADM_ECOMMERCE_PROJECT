@@ -143,6 +143,22 @@
   border-left: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+/* Currency Dropdown Styling for User Header */
+#userCurrency {
+  color: white !important;
+}
+
+#userCurrency option {
+  background-color: white !important;
+  color: #333 !important;
+}
+
+#userCurrency:focus {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+}
+
 @media (max-width: 768px) {
   .header-content {
     flex-direction: column;

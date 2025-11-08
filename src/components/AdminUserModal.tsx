@@ -232,6 +232,7 @@ function AdminUserModal({ show, onHide, user, onSave }: AdminUserModalProps) {
                     onChange={handleChange}
                   >
                     <option value="user">User</option>
+                    <option value="staff">Staff</option>
                     <option value="admin">Admin</option>
                   </select>
                 </div>

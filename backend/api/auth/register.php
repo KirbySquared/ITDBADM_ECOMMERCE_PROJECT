@@ -63,10 +63,22 @@ try {
         throw new Exception('Required fields cannot be empty');
     }
     
+    // Validate branch_id if provided
+    $branchId = null;
+    if (isset($input['branch_id']) && !empty($input['branch_id'])) {
+        $branchId = (int)$input['branch_id'];
+        // Verify branch exists
+        $branchCheck = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_id = ?");
+        $branchCheck->execute([$branchId]);
+        if (!$branchCheck->fetch()) {
+            sendError('Invalid branch selected', 400);
+        }
+    }
+    
     // Insert user - set initial status to 'inactive' (will be set to 'active' on first login)
     $stmt = $pdo->prepare("
-        INSERT INTO users (username, email, password_hash, first_name, last_name, phone, address, role, status) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (username, email, password_hash, first_name, last_name, phone, address, role, status, branch_id) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     
     $result = $stmt->execute([
@@ -78,7 +90,8 @@ try {
         null, // phone
         null, // address
         'user', // role
-        'inactive' // status - will be set to 'active' on login
+        'inactive', // status - will be set to 'active' on login
+        $branchId // branch_id
     ]);
     
     if (!$result) {
@@ -99,10 +112,13 @@ try {
     // Generate token
     $token = generateToken($userId);
     
-    // Get created user - include status
+    // Get created user - include status and branch info
     $stmt = $pdo->prepare("
-        SELECT user_id, username, email, first_name, last_name, phone, address, role, status, created_at
-        FROM users WHERE user_id = ?
+        SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.phone, u.address, u.role, u.status, u.branch_id, u.created_at,
+               b.branch_name
+        FROM users u
+        LEFT JOIN branches b ON u.branch_id = b.branch_id
+        WHERE u.user_id = ?
     ");
     $stmt->execute([$userId]);
     $newUser = $stmt->fetch();

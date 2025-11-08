@@ -214,20 +214,29 @@ try {
                 sendError('Branch not found', 404);
             }
             
-            // Check if branch has inventory
-            $inventoryCheck = $pdo->prepare("SELECT COUNT(*) as count FROM product_inventory WHERE branch_id = ?");
-            $inventoryCheck->execute([$branchIdParam]);
-            $inventoryCount = $inventoryCheck->fetch(PDO::FETCH_ASSOC)['count'];
+            // Start transaction to ensure atomicity
+            $pdo->beginTransaction();
             
-            if ($inventoryCount > 0) {
-                sendError("Cannot delete branch. It has $inventoryCount inventory entries. Please remove or transfer inventory first.", 409);
+            try {
+                // Delete related records in order (respecting foreign key constraints)
+                // 1. Delete from product_inventory (has foreign key to branches)
+                // This will remove all inventory entries for this branch
+                $stmt = $pdo->prepare("DELETE FROM product_inventory WHERE branch_id = ?");
+                $stmt->execute([$branchIdParam]);
+                
+                // 2. Finally, delete the branch itself
+                $stmt = $pdo->prepare("DELETE FROM branches WHERE branch_id = ?");
+                $stmt->execute([$branchIdParam]);
+                
+                // Commit transaction
+                $pdo->commit();
+                
+                sendResponse(null, 'Branch deleted successfully');
+            } catch (PDOException $e) {
+                // Rollback on error
+                $pdo->rollBack();
+                throw $e; // Re-throw to be caught by outer catch block
             }
-            
-            // Delete branch
-            $stmt = $pdo->prepare("DELETE FROM branches WHERE branch_id = ?");
-            $stmt->execute([$branchIdParam]);
-            
-            sendResponse(null, 'Branch deleted successfully');
             break;
             
         default:

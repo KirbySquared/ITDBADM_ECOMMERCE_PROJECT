@@ -29,6 +29,8 @@ interface User {
   phone?: string
   address?: string
   role?: string
+  branch_id?: number
+  branch_name?: string
 }
 
 interface AuthState {

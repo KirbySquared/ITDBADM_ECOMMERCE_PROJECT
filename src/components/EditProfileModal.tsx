@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react'
 
+interface Branch {
+  branch_id: number
+  branch_name: string
+  address?: string
+}
+
 interface User {
   user_id: number
   username: string
@@ -8,6 +14,8 @@ interface User {
   last_name: string
   phone?: string
   address?: string
+  branch_id?: number
+  branch_name?: string
 }
 
 interface EditProfileModalProps {
@@ -25,12 +33,42 @@ function EditProfileModal({ show, onHide, user, onSave }: EditProfileModalProps)
     last_name: user.last_name,
     phone: user.phone || '',
     address: user.address || '',
+    branch_id: user.branch_id || 0,
     password: '',
     confirmPassword: ''
   })
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [loadingBranches, setLoadingBranches] = useState(true)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitError, setSubmitError] = useState<string>('')
+
+  useEffect(() => {
+    if (show) {
+      fetchBranches()
+    }
+  }, [show])
+
+  const fetchBranches = async () => {
+    try {
+      setLoadingBranches(true)
+      const response = await fetch('http://localhost:8000/api/branches', {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setBranches(data.data.branches)
+      }
+    } catch (err) {
+      console.error('Failed to fetch branches:', err)
+    } finally {
+      setLoadingBranches(false)
+    }
+  }
 
   useEffect(() => {
     if (user) {
@@ -41,6 +79,7 @@ function EditProfileModal({ show, onHide, user, onSave }: EditProfileModalProps)
         last_name: user.last_name,
         phone: user.phone || '',
         address: user.address || '',
+        branch_id: user.branch_id || 0,
         password: '',
         confirmPassword: ''
       })
@@ -49,11 +88,11 @@ function EditProfileModal({ show, onHide, user, onSave }: EditProfileModalProps)
     setSubmitError('')
   }, [user, show])
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: e.target.type === 'select-one' ? Number(value) : value
     }))
     
     // Clear error when user starts typing
@@ -106,7 +145,8 @@ function EditProfileModal({ show, onHide, user, onSave }: EditProfileModalProps)
         first_name: formData.first_name,
         last_name: formData.last_name,
         phone: formData.phone || null,
-        address: formData.address || null
+        address: formData.address || null,
+        branch_id: formData.branch_id > 0 ? formData.branch_id : null
       }
 
       // Only include password if it's provided
@@ -225,6 +265,34 @@ function EditProfileModal({ show, onHide, user, onSave }: EditProfileModalProps)
                     onChange={handleChange}
                     placeholder="(123) 456-7890"
                   />
+                </div>
+                <div className="col-md-6 mb-3">
+                  <label htmlFor="branch_id" className="form-label">Nearest Branch</label>
+                  {loadingBranches ? (
+                    <div className="form-control d-flex align-items-center">
+                      <div className="spinner-border spinner-border-sm me-2" role="status"></div>
+                      Loading branches...
+                    </div>
+                  ) : (
+                    <select
+                      className="form-select"
+                      id="branch_id"
+                      name="branch_id"
+                      value={formData.branch_id}
+                      onChange={handleChange}
+                    >
+                      <option value={0}>No branch selected</option>
+                      {branches.map(branch => (
+                        <option key={branch.branch_id} value={branch.branch_id}>
+                          {branch.branch_name} {branch.address ? `- ${branch.address}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <div className="form-text">
+                    <i className="bi bi-info-circle me-1"></i>
+                    Select the branch nearest to you for better service.
+                  </div>
                 </div>
               </div>
               

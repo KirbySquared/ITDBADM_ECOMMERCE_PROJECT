@@ -21,6 +21,7 @@
  */
 import { ReactNode } from 'react'
 import AdminSidebar from './AdminSidebar'
+import AdminSuccessNotification from './AdminSuccessNotification'
 
 interface AdminLayoutProps {
   children: ReactNode
@@ -40,6 +41,8 @@ function AdminLayout({ children, currentPath }: AdminLayoutProps) {
           {/* Main Content */}
           <div className="col-md-9 col-lg-10">
             <div className="p-4">
+              {/* Global success notification for all admin pages */}
+              <AdminSuccessNotification />
               {children}
             </div>
           </div>

@@ -49,9 +49,11 @@ $input = json_decode(file_get_contents('php://input'), true);
 
 // Get current user data
 $stmt = $pdo->prepare("
-    SELECT user_id, username, email, first_name, last_name, phone, address, role
-    FROM users 
-    WHERE user_id = ?
+    SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.phone, u.address, u.role, u.branch_id,
+           b.branch_name
+    FROM users u
+    LEFT JOIN branches b ON u.branch_id = b.branch_id
+    WHERE u.user_id = ?
 ");
 $stmt->execute([$userId]);
 $currentUser = $stmt->fetch();
@@ -82,11 +84,27 @@ if (isset($input['email']) && !filter_var($input['email'], FILTER_VALIDATE_EMAIL
     sendError('Invalid email format', 400);
 }
 
+// Validate branch_id if provided
+if (isset($input['branch_id'])) {
+    if (empty($input['branch_id']) || $input['branch_id'] === '0' || $input['branch_id'] === 0) {
+        // Allow null/0 to unset branch
+        $input['branch_id'] = null;
+    } else {
+        $branchId = (int)$input['branch_id'];
+        // Verify branch exists
+        $branchCheck = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_id = ?");
+        $branchCheck->execute([$branchId]);
+        if (!$branchCheck->fetch()) {
+            sendError('Invalid branch selected', 400);
+        }
+    }
+}
+
 // Build update query
 $updateFields = [];
 $params = [];
 
-$allowedFields = ['username', 'email', 'first_name', 'last_name', 'phone', 'address'];
+$allowedFields = ['username', 'email', 'first_name', 'last_name', 'phone', 'address', 'branch_id'];
 foreach ($allowedFields as $field) {
     if (isset($input[$field])) {
         $updateFields[] = "$field = ?";
@@ -110,11 +128,13 @@ $sql = "UPDATE users SET " . implode(', ', $updateFields) . " WHERE user_id = ?"
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 
-// Get updated user
+// Get updated user with branch info
 $stmt = $pdo->prepare("
-    SELECT user_id, username, email, first_name, last_name, phone, address, role
-    FROM users 
-    WHERE user_id = ?
+    SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.phone, u.address, u.role, u.branch_id,
+           b.branch_name
+    FROM users u
+    LEFT JOIN branches b ON u.branch_id = b.branch_id
+    WHERE u.user_id = ?
 ");
 $stmt->execute([$userId]);
 $updatedUser = $stmt->fetch();

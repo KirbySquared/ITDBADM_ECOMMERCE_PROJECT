@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useCurrency } from '../context/CurrencyContext'
+import { useAuth } from '../hooks/useAuth'
+import { useNotification } from '../context/NotificationContext'
 import { formatPrice } from '../utils/currency'
 import { api } from '../api/config'
 import './ProductDetail.css'
 
-// ✅ NEW: branch context
-import { useBranch } from '../context/BranchContext'
+// Helper function to get category-based max quantity
+function getMaxQuantity(categoryName: string | undefined): number {
+  if (!categoryName) return 999 // No limit if category unknown
+  const category = categoryName.toLowerCase()
+  if (category === 'console') return 1
+  if (category === 'game') return 5
+  return 999 // No limit for other categories
+}
 
 type ProductImage = {
   image_id: number
@@ -35,10 +43,15 @@ type Product = {
 export default function ProductDetail() {
   const { id = '' } = useParams<{ id: string }>()
   const { currency } = useCurrency()
-  const { branchId } = useBranch() // ✅ NEW
+  const { user } = useAuth()
+  const { showSuccess, showError } = useNotification()
+  // Get user's branch_id from profile
+  const userBranchId = user?.branch_id || null
   const [product, setProduct] = useState<Product | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [quantity, setQuantity] = useState(1)
+  const [addingToCart, setAddingToCart] = useState(false)
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -46,10 +59,10 @@ export default function ProductDetail() {
         setLoading(true)
         setError(null)
 
-        // ✅ NEW: branch-aware URL
+        // Use user's branch_id if available
         const url =
-          branchId != null
-            ? api(`/products?id=${encodeURIComponent(id)}&branch_id=${branchId}&currency=${encodeURIComponent(currency)}`)
+          userBranchId != null
+            ? api(`/products?id=${encodeURIComponent(id)}&branch_id=${userBranchId}&currency=${encodeURIComponent(currency)}`)
             : api(`/products?id=${encodeURIComponent(id)}&currency=${encodeURIComponent(currency)}`)
 
         const res = await fetch(url, { credentials: 'include' })
@@ -77,8 +90,21 @@ export default function ProductDetail() {
     }
 
     if (id) fetchProduct()
-    // ✅ NEW: re-run when branch changes
-  }, [id, currency, branchId])
+    // Re-run when branch or currency changes
+  }, [id, currency, userBranchId])
+
+  // Reset quantity when product changes or when it exceeds max
+  // This must be before any early returns to follow Rules of Hooks
+  useEffect(() => {
+    if (product) {
+      const maxQuantity = getMaxQuantity(product.category_name)
+      const availableStock = product.stock_quantity ?? 0
+      const max = Math.min(maxQuantity, availableStock)
+      if (quantity > max) {
+        setQuantity(Math.max(1, max))
+      }
+    }
+  }, [product, quantity])
 
   if (loading) {
     return (
@@ -102,6 +128,90 @@ export default function ProductDetail() {
   }
 
   const amount = product.display_price ?? product.price_php ?? 0
+  const maxQuantity = getMaxQuantity(product.category_name)
+  const availableStock = product.stock_quantity ?? 0
+  const effectiveMax = Math.min(maxQuantity, availableStock)
+
+  const handleQuantityChange = (newQty: number) => {
+    const max = Math.min(maxQuantity, availableStock)
+    if (newQty < 1) {
+      setQuantity(1)
+    } else if (newQty > max) {
+      setQuantity(max)
+      showError(`Maximum quantity for ${product.category_name} category is ${maxQuantity}, and only ${availableStock} available in stock.`)
+    } else {
+      setQuantity(newQty)
+    }
+  }
+
+  const addToCart = async () => {
+    if (availableStock <= 0) {
+      showError('Product is out of stock')
+      return
+    }
+
+    if (quantity > maxQuantity) {
+      showError(`Maximum quantity for ${product.category_name} category is ${maxQuantity}`)
+      return
+    }
+
+    if (quantity > availableStock) {
+      showError(`Only ${availableStock} units available in stock`)
+      return
+    }
+
+    setAddingToCart(true)
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        showError('Please log in to add items to cart')
+        return
+      }
+
+      const response = await fetch('http://localhost:8000/api/cart', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          product_id: product.product_id,
+          quantity: quantity
+        })
+      })
+
+      // Get response text first to handle errors better
+      const responseText = await response.text()
+      let data: any = {}
+      
+      try {
+        data = JSON.parse(responseText)
+      } catch (e) {
+        console.error('Failed to parse response:', responseText)
+        throw new Error('Invalid response from server')
+      }
+
+      if (!response.ok || !data.success) {
+        const errorMessage = data.message || `Failed to add to cart (HTTP ${response.status})`
+        console.error('Cart API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          data: data,
+          responseText: responseText
+        })
+        throw new Error(errorMessage)
+      }
+
+      showSuccess(`Added ${quantity} ${quantity === 1 ? 'item' : 'items'} to cart!`)
+      window.dispatchEvent(new Event('cartUpdated'))
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to add to cart'
+      console.error('Add to cart error:', error)
+      showError(errorMessage)
+    } finally {
+      setAddingToCart(false)
+    }
+  }
 
   return (
     <div className="container py-5">
@@ -152,11 +262,68 @@ export default function ProductDetail() {
 
           <p className="mt-3">{product.description || 'No description provided.'}</p>
 
-          <div className="mt-4 d-flex gap-2">
-            <button className="btn btn-primary" disabled={product.stock_quantity === 0}>
-              {product.stock_quantity === 0 ? 'Out of Stock' : 'Add to Cart'}
-            </button>
-            <Link to="/products" className="btn btn-outline-secondary">Back to Products</Link>
+          <div className="mt-4">
+            <div className="mb-3">
+              <label htmlFor="quantity" className="form-label">
+                Quantity
+              </label>
+              <div className="input-group" style={{ maxWidth: '200px' }}>
+                <button
+                  className="btn btn-outline-secondary"
+                  type="button"
+                  onClick={() => handleQuantityChange(quantity - 1)}
+                  disabled={quantity <= 1 || availableStock === 0}
+                >
+                  <i className="bi bi-dash"></i>
+                </button>
+                <input
+                  type="number"
+                  className="form-control text-center"
+                  id="quantity"
+                  min="1"
+                  max={effectiveMax}
+                  value={quantity}
+                  onChange={(e) => handleQuantityChange(parseInt(e.target.value) || 1)}
+                  disabled={availableStock === 0}
+                  style={{
+                    WebkitAppearance: 'none',
+                    MozAppearance: 'textfield'
+                  }}
+                />
+                <button
+                  className="btn btn-outline-secondary"
+                  type="button"
+                  onClick={() => handleQuantityChange(quantity + 1)}
+                  disabled={quantity >= effectiveMax || availableStock === 0}
+                >
+                  <i className="bi bi-plus"></i>
+                </button>
+              </div>
+              <div className="form-text">
+                Available: {availableStock} units
+                {product.category_name && ` • Max per ${product.category_name}: ${maxQuantity}`}
+              </div>
+            </div>
+
+            <div className="d-flex gap-2">
+              <button
+                className="btn btn-primary"
+                disabled={availableStock === 0 || addingToCart}
+                onClick={addToCart}
+              >
+                {addingToCart ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                    Adding...
+                  </>
+                ) : availableStock === 0 ? (
+                  'Out of Stock'
+                ) : (
+                  'Add to Cart'
+                )}
+              </button>
+              <Link to="/products" className="btn btn-outline-secondary">Back to Products</Link>
+            </div>
           </div>
         </div>
       </div>

@@ -4,12 +4,15 @@ import './index.css'
 import App from './App'
 import { CurrencyProvider } from './context/CurrencyContext'
 import { BranchProvider } from './context/BranchContext'
+import { NotificationProvider } from './context/NotificationContext'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <CurrencyProvider>
       <BranchProvider>
-        <App />
+        <NotificationProvider>
+          <App />
+        </NotificationProvider>
       </BranchProvider>
     </CurrencyProvider>
   </StrictMode>

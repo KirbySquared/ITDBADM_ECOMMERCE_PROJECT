@@ -73,6 +73,14 @@ try {
     : "(SELECT COALESCE(SUM(pi.stock_qty),0) FROM product_inventory pi
          WHERE pi.product_id=p.product_id)";
 
+  // When branch_id is provided, only show products with inventory in that branch
+  $branchJoin = '';
+  $branchWhere = '';
+  if ($branchId > 0) {
+    $branchJoin = "INNER JOIN product_inventory pi ON p.product_id = pi.product_id AND pi.branch_id = ?";
+    $branchWhere = "AND pi.stock_qty > 0";
+  }
+
   $sql = "
     SELECT
       p.product_id,
@@ -89,11 +97,14 @@ try {
       c.category_name,
       p.created_at
     FROM products p
+    $branchJoin
     LEFT JOIN categories c ON c.category_id=p.category_id
+    WHERE 1=1 $branchWhere
     ORDER BY p.created_at DESC, p.product_id DESC";
   if ($limit > 0) $sql .= " LIMIT ".(int)$limit;
 
-  $params = ($branchId > 0) ? [$currency, $branchId] : [$currency];
+  // Parameters: currency, then branch_id (if branch filtering), then branch_id again for stock calculation
+  $params = ($branchId > 0) ? [$currency, $branchId, $branchId] : [$currency];
   $st = $pdo->prepare($sql);
   $st->execute($params);
   $rows = $st->fetchAll(PDO::FETCH_ASSOC);

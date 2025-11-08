@@ -61,10 +61,11 @@ interface AdminProductModalProps {
   onHide: () => void
   product?: Product | null
   categories: Category[]
+  selectedBranchId?: number
   onSave: (productData: Omit<Product, 'product_id' | 'category_name' | 'created_at' | 'updated_at'>) => Promise<void>
 }
 
-function AdminProductModal({ show, onHide, product, categories, onSave }: AdminProductModalProps) {
+function AdminProductModal({ show, onHide, product, categories, selectedBranchId = 1, onSave }: AdminProductModalProps) {
   const [formData, setFormData] = useState<Product>({
     category_id: 0,
     product_name: '',
@@ -172,7 +173,8 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
     if (!formData.brand.trim()) newErrors.brand = 'Brand is required'
     if (!formData.category_id || formData.category_id === 0) newErrors.category_id = 'Category is required'
     if (formData.price <= 0) newErrors.price = 'Price must be greater than 0'
-    if (formData.stock_quantity < 0) newErrors.stock_quantity = 'Stock quantity cannot be negative'
+    // Only validate stock_quantity if editing an existing product with a branch
+    if (product && selectedBranchId !== 0 && formData.stock_quantity < 0) newErrors.stock_quantity = 'Stock quantity cannot be negative'
     
     // Validate specifications JSON
     if (specificationsText.trim()) {
@@ -196,13 +198,30 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
     try {
       // Prepare data for saving (exclude fields that shouldn't be sent)
       // Keep branch_id for proper inventory management
-      const { product_id, category_name, created_at, updated_at, branch_name, images, ...saveData } = formData
+      const { product_id, category_name, created_at, updated_at, branch_name, images, stock_quantity, ...baseSaveData } = formData
       
-      // Ensure branch_id is included for inventory management
-      // When editing, use the branch_id from the product's inventory (from product_inventory table)
-      // When creating, branch_id will be set by the parent component based on selected branch
-      if (formData.branch_id) {
-        saveData.branch_id = formData.branch_id
+      // Build saveData based on branch selection
+      let saveData: any = { ...baseSaveData }
+      
+      // For new products, always set branch_id to 0 (no branch assignment)
+      // Admins will add products to branches later using "Add Product to Branch" modal
+      // For updates, use branch_id from product's inventory (from product_inventory table)
+      if (!product) {
+        // New product - always create without branch assignment
+        saveData.branch_id = 0
+        // Don't include stock_quantity for new products
+      } else {
+        // Editing existing product - use branch_id from product's inventory
+        if (selectedBranchId === 0) {
+          saveData.branch_id = 0
+          // Don't include stock_quantity for products with no branch
+        } else {
+          // Include stock_quantity for products with a branch
+          saveData.stock_quantity = stock_quantity
+          if (formData.branch_id) {
+            saveData.branch_id = formData.branch_id
+          }
+        }
       }
       
       await onSave(saveData)
@@ -343,38 +362,42 @@ function AdminProductModal({ show, onHide, product, categories, onSave }: AdminP
                     </div>
                   </div>
                   
-                  <div className="col-md-4 mb-3">
-                    <label htmlFor="stock_quantity" className="form-label">Stock Quantity *</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className={`form-control ${errors.stock_quantity ? 'is-invalid' : ''}`}
-                      id="stock_quantity"
-                      name="stock_quantity"
-                      value={formData.stock_quantity}
-                      onChange={handleNumberChange}
-                      required
-                    />
-                    {errors.stock_quantity && <div className="invalid-feedback">{errors.stock_quantity}</div>}
-                    {product && formData.branch_id && product.branch_name && (
+                  {product && selectedBranchId !== 0 && (
+                    <div className="col-md-4 mb-3">
+                      <label htmlFor="stock_quantity" className="form-label">Stock Quantity *</label>
+                      <input
+                        type="number"
+                        min="0"
+                        className={`form-control ${errors.stock_quantity ? 'is-invalid' : ''}`}
+                        id="stock_quantity"
+                        name="stock_quantity"
+                        value={formData.stock_quantity}
+                        onChange={handleNumberChange}
+                        required
+                      />
+                      {errors.stock_quantity && <div className="invalid-feedback">{errors.stock_quantity}</div>}
+                      {formData.branch_id && product.branch_name && (
+                        <div className="form-text">
+                          <i className="bi bi-info-circle me-1"></i>
+                          Stock quantity for <strong>{product.branch_name}</strong> (Branch ID: {formData.branch_id})
+                        </div>
+                      )}
+                      {!formData.branch_id && (
+                        <div className="form-text text-warning">
+                          <i className="bi bi-exclamation-triangle me-1"></i>
+                          No branch assigned. Stock will be set for the first available branch.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!product && (
+                    <div className="col-md-4 mb-3">
                       <div className="form-text">
                         <i className="bi bi-info-circle me-1"></i>
-                        Stock quantity for <strong>{product.branch_name}</strong> (Branch ID: {formData.branch_id})
+                        <strong>Note:</strong> New products are created without branch assignment. Use "Add Product to Branch" to assign this product to branches and set stock quantities.
                       </div>
-                    )}
-                    {product && !formData.branch_id && (
-                      <div className="form-text text-warning">
-                        <i className="bi bi-exclamation-triangle me-1"></i>
-                        No branch assigned. Stock will be set for the first available branch.
-                      </div>
-                    )}
-                    {!product && (
-                      <div className="form-text">
-                        <i className="bi bi-info-circle me-1"></i>
-                        Stock quantity will be set for the selected branch
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="mb-3">

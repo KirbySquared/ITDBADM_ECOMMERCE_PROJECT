@@ -80,6 +80,9 @@ if ($path === 'login' && $method === 'POST') {
     if (isset($pathSegments[2]) && $pathSegments[2] === 'images') {
         // Route to product images handler
         include 'product_images.php';
+    } elseif (isset($pathSegments[2]) && $pathSegments[2] === 'inventory') {
+        // Route to products handler for inventory management
+        include 'products.php';
     } else {
         // Route to products handler
         include 'products.php';

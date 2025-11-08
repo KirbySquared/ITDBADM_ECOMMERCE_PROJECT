@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { formatPrice } from '../utils/currency'
 import { useCurrency } from '../context/CurrencyContext'
-import { useBranch } from '../context/BranchContext'
+import { useAuth } from '../hooks/useAuth'
+import { useNotification } from '../context/NotificationContext'
 import { api } from '../api/config'
 import './Products.css'
 
@@ -38,9 +39,21 @@ const ENDPOINTS = {
   cartBase: 'http://localhost:8000/api/cart',
 }
 
+// Helper function to get category-based max quantity
+function getMaxQuantity(categoryName: string | undefined): number {
+  if (!categoryName) return 999 // No limit if category unknown
+  const category = categoryName.toLowerCase()
+  if (category === 'console') return 1
+  if (category === 'game') return 5
+  return 999 // No limit for other categories
+}
+
 function Products() {
   const { currency } = useCurrency()
-  const { branchId } = useBranch()
+  const { user } = useAuth()
+  const { showSuccess, showError } = useNotification()
+  // Get user's branch_id from profile (stored in localStorage)
+  const userBranchId = user?.branch_id || null
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -66,7 +79,8 @@ function Products() {
   function buildQS() {
     const sp = new URLSearchParams()
     sp.set('currency', currency)
-    if (branchId != null) sp.set('branch_id', String(branchId))
+    // Only show products in user's branch if they have one set
+    if (userBranchId != null) sp.set('branch_id', String(userBranchId))
     if (q) sp.set('q', q)
     if (platform.length) sp.set('platform', platform.join(','))
     if (genreId) sp.set('genre_id', String(genreId))
@@ -119,7 +133,7 @@ function Products() {
       if (res.status === 404) {
         // fallback to list
         console.warn('[Products] /products/search not found. Falling back to /products list.')
-        const listRes = await fetch(ENDPOINTS.list(currency, branchId), { credentials: 'include' })
+        const listRes = await fetch(ENDPOINTS.list(currency, userBranchId), { credentials: 'include' })
         const listJson = await listRes.json()
         if (!listRes.ok || listJson.success === false) {
           throw new Error(listJson.message || 'Failed to load products')
@@ -151,81 +165,65 @@ function Products() {
   useEffect(() => {
     fetchSearch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, branchId, q, platform, genreId, year, month, price, inStock, sort, page])
+  }, [currency, userBranchId, q, platform, genreId, year, month, price, inStock, sort, page])
 
   const filtered =
     filter === 'all'
       ? products
       : products.filter(p => (p.category_name || '').toLowerCase() === filter)
 
-  // ---------- NEW: add-to-cart ----------
-  const addToCart = async (product: Product) => {
-    if ((product.stock_quantity ?? 0) <= 0) return
+  // ---------- NEW: add-to-cart with category restrictions ----------
+  const addToCart = async (product: Product, quantity: number = 1) => {
+    if ((product.stock_quantity ?? 0) <= 0) {
+      showError('Product is out of stock')
+      return
+    }
+    
+    // Check category-based quantity restrictions
+    const maxQty = getMaxQuantity(product.category_name)
+    if (quantity > maxQty) {
+      showError(`Maximum quantity for ${product.category_name} category is ${maxQty}`)
+      return
+    }
+    
     setAddingId(product.product_id)
     try {
       const token = localStorage.getItem('token')
-      const selectedBranchId = branchId != null ? Number(branchId) : undefined
-
-      // Build a safe payload; many backends require branch_id to be a number
-      const payload: any = {
-        product_id: product.product_id,
-        quantity: 1,
+      if (!token) {
+        showError('Please log in to add items to cart')
+        return
       }
-      if (selectedBranchId !== undefined) payload.branch_id = selectedBranchId
 
-      if (token) {
-        const res = await fetch('http://localhost:8000/api/cart', {
+      const res = await fetch('http://localhost:8000/api/cart', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ product_id: product.product_id, quantity: 1 })
+        body: JSON.stringify({ product_id: product.product_id, quantity: quantity })
       })
 
-        // decode body (even on errors) so we can show the real reason
-        const text = await res.text()
-        let json: any = {}
-        try { json = text ? JSON.parse(text) : {} } catch { /* keep raw text */ }
+      // decode body (even on errors) so we can show the real reason
+      const text = await res.text()
+      let json: any = {}
+      try { 
+        json = text ? JSON.parse(text) : {} 
+      } catch (e) {
+        console.error('Failed to parse cart response:', text)
+      }
 
-        if (!res.ok || json?.success === false) {
-          console.error('Add to cart failed:', { status: res.status, body: text })
-          const msg =
-            json?.message ||
-            (typeof json === 'string' ? json : '') ||
-            `HTTP ${res.status}: Failed to add to cart`
-          throw new Error(msg)
-        }
-      } else {
-        // Guest cart in localStorage
-        const key = 'guest_cart'
-        const existing = JSON.parse(localStorage.getItem(key) || '[]') as Array<{
-          product_id: number
-          quantity: number
-          product_name: string
-          price: number
-          currency: string
-          image_url?: string
-          branch_id?: number
-        }>
-
-        const idx = existing.findIndex(
-          i => i.product_id === product.product_id && i.branch_id === selectedBranchId
-        )
-        if (idx >= 0) {
-          existing[idx].quantity += 1
-        } else {
-          existing.push({
-            product_id: product.product_id,
-            quantity: 1,
-            product_name: product.product_name,
-            price: product.display_price ?? product.price,
-            currency: product.currency,
-            image_url: product.primary_image_url,
-            branch_id: selectedBranchId,
-          })
-        }
-        localStorage.setItem(key, JSON.stringify(existing))
+      if (!res.ok || json?.success === false) {
+        console.error('Add to cart failed:', { 
+          status: res.status, 
+          statusText: res.statusText,
+          body: text,
+          json: json
+        })
+        const msg =
+          json?.message ||
+          (typeof json === 'string' ? json : '') ||
+          `Failed to add to cart (HTTP ${res.status})`
+        throw new Error(msg)
       }
 
       setAddedIds(prev => ({ ...prev, [product.product_id]: true }))
@@ -233,9 +231,12 @@ function Products() {
         setAddedIds(prev => ({ ...prev, [product.product_id]: false }))
       }, 1200)
 
+      showSuccess(`Added ${quantity} ${quantity === 1 ? 'item' : 'items'} to cart!`)
       window.dispatchEvent(new Event('cartUpdated'))
     } catch (e) {
-      alert((e as Error).message || 'Could not add to cart')
+      const errorMessage = (e as Error).message || 'Could not add to cart'
+      console.error('Add to cart error:', e)
+      showError(errorMessage)
     } finally {
       setAddingId(null)
     }
@@ -283,7 +284,7 @@ function Products() {
             <h1 className="display-4 fw-bold">
               Products{' '}
               <span className="badge bg-secondary">{currency}</span>
-              {branchId != null && <span className="badge bg-info text-dark ms-2">Branch #{branchId}</span>}
+              {userBranchId != null && <span className="badge bg-info text-dark ms-2">Branch #{userBranchId}</span>}
             </h1>
           </div>
         </div>
@@ -405,7 +406,12 @@ function Products() {
                           {formatPrice(amount, product.currency)}
                         </p>
                         <p className="text-muted small mb-2">
-                          Qty: {product.stock_quantity ?? 0}{branchId != null ? '' : ' (all branches)'}
+                          Qty: {product.stock_quantity ?? 0}
+                          {product.category_name && (
+                            <span className="ms-2">
+                              (Max: {getMaxQuantity(product.category_name)} per {product.category_name})
+                            </span>
+                          )}
                         </p>
 
                         <div className="mt-auto">

@@ -175,9 +175,9 @@ switch ($path) {
         break;
         
     default:
-        // Check if it's an admin route with ID (e.g., admin/users/123, admin/products/123/images, admin/orders/123, admin/branches/123)
+        // Check if it's an admin route with ID (e.g., admin/users/123, admin/products/123/images, admin/products/123/inventory, admin/orders/123, admin/branches/123)
         if (preg_match('/^admin\/(users|categories|branches|products|orders)\/\d+$/', $path) || 
-            preg_match('/^admin\/products\/\d+\/images/', $path)) {
+            preg_match('/^admin\/products\/\d+\/(images|inventory)/', $path)) {
             error_log("Routing to admin API for path: " . $path);
             include 'admin/index.php';
             break;

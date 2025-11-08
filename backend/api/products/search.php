@@ -101,13 +101,25 @@ try {
   if ($sort === 'price_asc')  $orderBy = "$displayExpr ASC";
   if ($sort === 'price_desc') $orderBy = "$displayExpr DESC";
 
+  // ---------------- Branch filtering: Only show products with inventory in branch ----------------
+  $branchJoin = '';
+  $branchWhere = '';
+  if ($branchId > 0) {
+    // When branch_id is provided, only show products that have inventory in that branch
+    $branchJoin = "INNER JOIN product_inventory pi ON p.product_id = pi.product_id AND pi.branch_id = {$branchIdInt}";
+    // Only show products with stock > 0 in that branch
+    $branchWhere = "AND pi.stock_qty > 0";
+  }
+
   // ---------------- Count (for pagination) ----------------
   $countSql = "
     SELECT COUNT(*) AS cnt
     FROM products p
+    $branchJoin
     LEFT JOIN categories c ON c.category_id = p.category_id
     LEFT JOIN genres g ON g.genre_id = p.genre_id
     $whereClause
+    $branchWhere
   ";
   $countStmt = $pdo->prepare($countSql);
   $countStmt->execute($params);
@@ -134,9 +146,11 @@ try {
       c.category_name,
       p.created_at
     FROM products p
+    $branchJoin
     LEFT JOIN categories c ON c.category_id = p.category_id
     LEFT JOIN genres g ON g.genre_id = p.genre_id
     $whereClause
+    $branchWhere
     ORDER BY $orderBy
     LIMIT :limit OFFSET :offset
   ";

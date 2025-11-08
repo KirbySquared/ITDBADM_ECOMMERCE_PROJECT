@@ -21,7 +21,10 @@
 import { useState, useEffect } from 'react'
 import AdminLayout from '../components/AdminLayout'
 import AdminProductModal from '../components/AdminProductModal'
+import AddProductToBranchModal from '../components/AddProductToBranchModal'
 import { formatPrice } from '../utils/currency'
+import { useAdminNotification } from '../context/AdminNotificationContext'
+import { useCurrency } from '../context/CurrencyContext'
 
 interface Product {
   product_id: number
@@ -45,6 +48,7 @@ interface Product {
   category_name: string
   branch_id?: number
   branch_name?: string
+  is_unassigned?: number
   created_at: string
   updated_at?: string
 }
@@ -62,16 +66,19 @@ interface Branch {
 }
 
 function AdminProducts() {
+  const { showSuccess } = useAdminNotification()
+  const { currency } = useCurrency()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
-  const [selectedBranchId, setSelectedBranchId] = useState<number>(1) // Default to branch 1
+  const [selectedBranchId, setSelectedBranchId] = useState<number>(1) // Default to branch 1 (0 = no branch)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [showModal, setShowModal] = useState(false)
+  const [showAddToBranchModal, setShowAddToBranchModal] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -131,7 +138,8 @@ function AdminProducts() {
       const params = new URLSearchParams({
         page: currentPage.toString(),
         limit: '10',
-        branch_id: selectedBranchId.toString()
+        branch_id: selectedBranchId.toString(),
+        currency: currency
       })
       
       if (searchTerm) params.append('search', searchTerm)
@@ -167,7 +175,7 @@ function AdminProducts() {
 
   useEffect(() => {
     fetchProducts()
-  }, [currentPage, selectedBranchId])
+  }, [currentPage, selectedBranchId, currency])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -197,7 +205,8 @@ function AdminProducts() {
       }
 
       // Try to get product with the selected branch, but backend will use actual branch_id from inventory
-      const response = await fetch(`http://localhost:8000/api/admin/products/${product.product_id}?branch_id=${selectedBranchId}`, {
+      // If selectedBranchId is 0, pass it to get product without inventory data
+      const response = await fetch(`http://localhost:8000/api/admin/products/${product.product_id}?branch_id=${selectedBranchId}&currency=${currency}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -226,14 +235,16 @@ function AdminProducts() {
 
       const url = selectedProduct 
         ? `http://localhost:8000/api/admin/products/${selectedProduct.product_id}`
-        : `http://localhost:8000/api/admin/products?branch_id=${selectedBranchId}`
+        : `http://localhost:8000/api/admin/products?branch_id=0`
       
       const method = selectedProduct ? 'PUT' : 'POST'
 
-      // For new products, use selected branch. For updates, use branch_id from product data (from inventory)
+      // For new products, always set branch_id to 0 (no branch assignment)
+      // Admins will add products to branches later using "Add Product to Branch" modal
+      // For updates, use branch_id from product data (from inventory)
       const productDataWithBranch = {
         ...productData,
-        branch_id: selectedProduct && productData.branch_id ? productData.branch_id : selectedBranchId
+        branch_id: selectedProduct && productData.branch_id ? productData.branch_id : 0
       }
 
       const response = await fetch(url, {
@@ -253,6 +264,10 @@ function AdminProducts() {
 
       // Refresh the products list
       await fetchProducts()
+      
+      // Show success message using context
+      showSuccess(selectedProduct ? 'Product updated successfully!' : 'Product created successfully!')
+      setError(null)
     } catch (err) {
       throw err // Re-throw to be handled by the modal
     }
@@ -285,8 +300,12 @@ function AdminProducts() {
 
       // Refresh the products list
       await fetchProducts()
+      
+      // Show success message using context
+      showSuccess(`Product "${product.product_name}" deleted successfully!`)
+      setError(null)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete product')
+      setError(err instanceof Error ? err.message : 'Failed to delete product')
     }
   }
 
@@ -390,6 +409,7 @@ function AdminProducts() {
                     setCurrentPage(1)
                   }}
                 >
+                  <option value={0}>All Products</option>
                   {branches.map(branch => (
                     <option key={branch.branch_id} value={branch.branch_id}>
                       {branch.branch_name}
@@ -398,7 +418,26 @@ function AdminProducts() {
                 </select>
                 <div className="form-text">
                   <i className="bi bi-info-circle me-1"></i>
-                  Select a branch to view and manage products for that branch
+                  {selectedBranchId === 0 
+                    ? 'View all products in the master catalog. Products without branch assignment are marked as "Unassigned"'
+                    : 'Select a branch to view and manage products for that branch'}
+                </div>
+              </div>
+              <div className="col-md-4">
+                <label className="form-label">Inventory Management</label>
+                <div>
+                  <button
+                    type="button"
+                    className="btn btn-info w-100"
+                    onClick={() => setShowAddToBranchModal(true)}
+                  >
+                    <i className="bi bi-box-seam me-2"></i>
+                    Add Product to Branch
+                  </button>
+                  <div className="form-text">
+                    <i className="bi bi-info-circle me-1"></i>
+                    Add existing products to any branch with stock quantity
+                  </div>
                 </div>
               </div>
             </div>
@@ -415,13 +454,17 @@ function AdminProducts() {
                   <th>Product Name</th>
                   <th>Brand</th>
                   <th>Price & Currency</th>
-                  <th>
-                    Stock
-                    <small className="text-muted d-block" style={{fontSize: '0.7rem', fontWeight: 'normal'}}>
-                      ({branches.find(b => b.branch_id === selectedBranchId)?.branch_name || 'Branch'})
-                    </small>
-                  </th>
-                  <th>Branch</th>
+                  {selectedBranchId !== 0 && (
+                    <>
+                      <th>
+                        Stock
+                        <small className="text-muted d-block" style={{fontSize: '0.7rem', fontWeight: 'normal'}}>
+                          ({branches.find(b => b.branch_id === selectedBranchId)?.branch_name || 'Branch'})
+                        </small>
+                      </th>
+                      <th>Branch</th>
+                    </>
+                  )}
                   <th>Category</th>
                   <th>Images</th>
                   <th>Created</th>
@@ -454,7 +497,15 @@ function AdminProducts() {
                           </div>
                         )}
                         <div>
-                          <strong>{product.product_name}</strong>
+                          <div className="d-flex align-items-center gap-2">
+                            <strong>{product.product_name}</strong>
+                            {selectedBranchId === 0 && product.is_unassigned === 1 && (
+                              <span className="badge bg-warning text-dark">
+                                <i className="bi bi-exclamation-triangle me-1"></i>
+                                Unassigned
+                              </span>
+                            )}
+                          </div>
                           {product.model && <div><small className="text-muted">{product.model}</small></div>}
                         </div>
                       </div>
@@ -465,19 +516,23 @@ function AdminProducts() {
                         ? formatPrice(Number(product.price), product.currency) 
                         : 'N/A'}
                     </td>
-                    <td>
-                      <span className={`badge ${
-                        (product.stock_quantity ?? 0) < 10 ? 'bg-danger' : 
-                        (product.stock_quantity ?? 0) < 20 ? 'bg-warning' : 'bg-success'
-                      }`}>
-                        {product.stock_quantity ?? 0}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="badge bg-info">
-                        {product.branch_name || `Branch #${product.branch_id || selectedBranchId}`}
-                      </span>
-                    </td>
+                    {selectedBranchId !== 0 && (
+                      <>
+                        <td>
+                          <span className={`badge ${
+                            (product.stock_quantity ?? 0) < 10 ? 'bg-danger' : 
+                            (product.stock_quantity ?? 0) < 20 ? 'bg-warning' : 'bg-success'
+                          }`}>
+                            {product.stock_quantity ?? 0}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="badge bg-info">
+                            {product.branch_name || `Branch #${product.branch_id || selectedBranchId}`}
+                          </span>
+                        </td>
+                      </>
+                    )}
                     <td>{product.category_name}</td>
                     <td>
                       <div className="d-flex align-items-center gap-2">
@@ -587,7 +642,17 @@ function AdminProducts() {
         onHide={() => setShowModal(false)}
         product={selectedProduct}
         categories={categories}
+        selectedBranchId={selectedBranchId}
         onSave={handleSaveProduct}
+      />
+
+      {/* Add Product to Branch Modal */}
+      <AddProductToBranchModal
+        show={showAddToBranchModal}
+        onHide={() => setShowAddToBranchModal(false)}
+        onInventoryChange={() => {
+          fetchProducts() // Refresh products list after inventory change
+        }}
       />
     </AdminLayout>
   )

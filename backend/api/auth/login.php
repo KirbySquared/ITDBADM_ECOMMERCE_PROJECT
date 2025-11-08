@@ -15,11 +15,13 @@ if (!empty($errors)) {
 $email = sanitizeInput($input['email']);
 $password = $input['password'];
 
-// Find user by email (now also selecting status)
+// Find user by email (now also selecting status and branch info)
 $stmt = $pdo->prepare("
-    SELECT user_id, username, first_name, last_name, email, phone, address, password_hash, status
-    FROM users
-    WHERE email = ?
+    SELECT u.user_id, u.username, u.first_name, u.last_name, u.email, u.phone, u.address, u.password_hash, u.status, u.branch_id,
+           b.branch_name
+    FROM users u
+    LEFT JOIN branches b ON u.branch_id = b.branch_id
+    WHERE u.email = ?
 ");
 $stmt->execute([$email]);
 $user = $stmt->fetch();
