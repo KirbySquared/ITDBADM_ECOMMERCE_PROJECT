@@ -1,48 +1,45 @@
 <?php
-require_once __DIR__ . '/../config/database.php';
-require_once __DIR__ . '/../utils/response.php';
+/**
+ * /api/cart index router
+ *
+ * Routes HTTP methods to the appropriate cart handlers:
+ *  - GET     -> get_cart.php
+ *  - POST    -> add_to_cart.php
+ *  - PUT     -> update_cart.php
+ *  - DELETE  -> remove_from_cart.php
+ */
+
 header('Content-Type: application/json');
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-// TODO: replace with your real auth; must return current user_id
-function requireUserId(): int {
-  $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-  if (!$auth) sendError('Unauthorized', 401);
-  return 1; // stub
-}
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-try {
-  if ($_SERVER['REQUEST_METHOD'] !== 'POST') sendError('Method not allowed', 405);
+switch ($method) {
+    case 'GET':
+        // Get current user's cart (with currency & conversions)
+        require __DIR__ . '/get_cart.php';
+        break;
 
-  $userId    = requireUserId();
-  $input     = json_decode(file_get_contents('php://input'), true) ?? [];
-  $productId = (int)($input['product_id'] ?? 0);
-  $qty       = max(1, (int)($input['quantity'] ?? 1));
-  if ($productId <= 0) sendError('product_id required', 422);
+    case 'POST':
+        // Add item to cart (product_id, quantity)
+        require __DIR__ . '/add_to_cart.php';
+        break;
 
-  // (optional) verify product exists
-  $chk = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ? LIMIT 1");
-  $chk->execute([$productId]);
-  if (!$chk->fetch()) sendError('Product not found', 404);
+    case 'PUT':
+        // Update quantity of a cart line (cart_id, quantity)
+        require __DIR__ . '/update_cart.php';
+        break;
 
-  $pdo->beginTransaction();
+    case 'DELETE':
+        // Remove a cart line (cart_id)
+        require __DIR__ . '/remove_from_cart.php';
+        break;
 
-  // lock existing cart row for upsert
-  $sel = $pdo->prepare("SELECT cart_id, quantity FROM cart WHERE user_id = ? AND product_id = ? FOR UPDATE");
-  $sel->execute([$userId, $productId]);
-  $row = $sel->fetch(PDO::FETCH_ASSOC);
+    case 'OPTIONS':
+        // Optional: if you need CORS preflight to succeed
+        http_response_code(204);
+        exit;
 
-  if ($row) {
-    $upd = $pdo->prepare("UPDATE cart SET quantity = ?, added_at = NOW() WHERE cart_id = ?");
-    $upd->execute([(int)$row['quantity'] + $qty, $row['cart_id']]);
-  } else {
-    $ins = $pdo->prepare("INSERT INTO cart (user_id, product_id, quantity, added_at) VALUES (?, ?, ?, NOW())");
-    $ins->execute([$userId, $productId, $qty]);
-  }
-
-  $pdo->commit();
-  sendResponse(['ok' => true], 'Added to cart');
-} catch (Throwable $e) {
-  if ($pdo->inTransaction()) $pdo->rollBack();
-  sendError($e->getMessage(), 500);
+    default:
+        require_once __DIR__ . '/../utils/response.php';
+        sendError('Method not allowed', 405);
 }

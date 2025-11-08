@@ -1,6 +1,8 @@
+// src/components/Cart.tsx
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { formatPrice } from '../utils/currency'
+import { useCurrency } from '../context/CurrencyContext'
 import './Cart.css'
 
 interface CartItem {
@@ -8,8 +10,8 @@ interface CartItem {
   product_id: number
   quantity: number
   product_name: string
-  price: number
-  currency: string
+  price: number        // unit price in selected currency
+  currency: string     // e.g. "PHP", "USD"
   image_url?: string
 }
 
@@ -21,14 +23,17 @@ function Cart() {
   const [locking, setLocking] = useState(false)
   const navigate = useNavigate()
 
+  // 👇 from your currency selector (same one used in Products.tsx)
+  const { currency } = useCurrency()
+
   useEffect(() => {
     fetchCart()
 
     const handleCartUpdate = () => fetchCart()
     window.addEventListener('cartUpdated', handleCartUpdate)
     return () => window.removeEventListener('cartUpdated', handleCartUpdate)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    // refetch when currency changes
+  }, [currency]) // 👈 important
 
   const fetchCart = async () => {
     setLoading(true)
@@ -39,19 +44,37 @@ function Cart() {
         return
       }
 
-      const response = await fetch('http://localhost:8000/api/cart', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      const response = await fetch(
+        `http://localhost:8000/api/cart?currency=${encodeURIComponent(currency)}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
         }
-      })
+      )
 
       if (response.ok) {
-        const data = await response.json().catch(() => ({}))
+        const data = await response.json().catch(() => ({} as any))
+
         if (data?.success) {
-          // 👇 THIS IS THE SPOT
-          setCartItems(data.data?.items || [])
-          setTotal(data.data?.total || 0)
+          const apiCurrency = data.data?.currency || 'PHP'
+          const rawItems = data.data?.items || []
+
+          // 👇 Map backend fields → what the UI expects
+          const mapped: CartItem[] = rawItems.map((it: any) => ({
+            cart_id: Number(it.cart_id),
+            product_id: Number(it.product_id),
+            quantity: Number(it.quantity),
+            product_name: it.product_name,
+            image_url: it.image_url,
+            // use converted price if present, else base PHP price
+            price: Number(it.unit_price_display ?? it.unit_price_php ?? 0),
+            currency: apiCurrency,
+          }))
+
+          setCartItems(mapped)
+          setTotal(Number(data.data?.total || 0))
         } else {
           console.error('Cart error:', data?.message || 'Unknown error')
           setCartItems([])
@@ -141,9 +164,9 @@ function Cart() {
     }
   }
 
-  const getCurrency = () => cartItems[0]?.currency || 'USD'
+  const getCurrency = () => cartItems[0]?.currency || currency || 'PHP'
 
-  // Currency lock + navigate to checkout
+  // Currency lock + navigate to checkout (unchanged)
   const lockRateAndGo = async () => {
     if (cartItems.length === 0) return
     setLocking(true)
@@ -153,7 +176,7 @@ function Cart() {
         navigate('/login')
         return
       }
-      const currency = getCurrency()
+      const cur = getCurrency()
 
       const res = await fetch('http://localhost:8000/api/checkout/lock-currency', {
         method: 'POST',
@@ -161,11 +184,11 @@ function Cart() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ currency })
+        body: JSON.stringify({ currency: cur })
       })
 
       if (!res.ok) {
-        const err = await res.json().catch(()=> ({}))
+        const err = await res.json().catch(() => ({}))
         throw new Error(err?.message || 'Failed to lock currency')
       }
 
@@ -204,7 +227,7 @@ function Cart() {
               <h1 className="display-4 fw-bold mb-4">Shopping Cart</h1>
               <div className="card shadow-sm">
                 <div className="card-body py-5">
-                  <i className="bi bi-cart-x text-muted" style={{fontSize: '4rem'}}></i>
+                  <i className="bi bi-cart-x text-muted" style={{ fontSize: '4rem' }}></i>
                   <h2 className="mt-3 mb-2">Your shop cart is empty</h2>
                   <p className="text-muted mb-4">Check out our products to start shopping!</p>
                   <Link to="/products" className="btn btn-primary btn-lg">
@@ -241,10 +264,10 @@ function Cart() {
                           src={item.image_url}
                           alt={item.product_name}
                           className="rounded"
-                          style={{width: '80px', height: '80px', objectFit: 'cover'}}
+                          style={{ width: '80px', height: '80px', objectFit: 'cover' }}
                         />
                       ) : (
-                        <div className="bg-light rounded" style={{height: '80px', width: '80px'}}>
+                        <div className="bg-light rounded" style={{ height: '80px', width: '80px' }}>
                           <div className="d-flex align-items-center justify-content-center h-100">
                             <i className="bi bi-image text-muted"></i>
                           </div>
@@ -254,7 +277,9 @@ function Cart() {
 
                     <div className="col-md-4">
                       <h5 className="mb-1">{item.product_name}</h5>
-                      <p className="text-primary fw-bold mb-0">{formatPrice(item.price, item.currency)}</p>
+                      <p className="text-primary fw-bold mb-0">
+                        {formatPrice(item.price, item.currency)} <small className="text-muted">each</small>
+                      </p>
                     </div>
 
                     <div className="col-md-3">
@@ -264,7 +289,11 @@ function Cart() {
                           onClick={() => updateQuantity(item.cart_id, item.quantity - 1)}
                           disabled={updating === item.cart_id}
                         >
-                          {updating === item.cart_id ? <span className="spinner-border spinner-border-sm"></span> : '-'}
+                          {updating === item.cart_id ? (
+                            <span className="spinner-border spinner-border-sm"></span>
+                          ) : (
+                            '-'
+                          )}
                         </button>
                         <span className="fw-bold">{item.quantity}</span>
                         <button
@@ -272,16 +301,25 @@ function Cart() {
                           onClick={() => updateQuantity(item.cart_id, item.quantity + 1)}
                           disabled={updating === item.cart_id}
                         >
-                          {updating === item.cart_id ? <span className="spinner-border spinner-border-sm"></span> : '+'}
+                          {updating === item.cart_id ? (
+                            <span className="spinner-border spinner-border-sm"></span>
+                          ) : (
+                            '+'
+                          )}
                         </button>
                       </div>
                     </div>
 
-                    <div className="col-md-2">
-                      <p className="fw-bold mb-0">{formatPrice(item.price * item.quantity, item.currency)}</p>
+                    <div className="col-md-2 text-end">
+                      <p className="fw-bold mb-0">
+                        {formatPrice(item.price * item.quantity, item.currency)}
+                      </p>
+                      <small className="text-muted">
+                        ({formatPrice(item.price, item.currency)} × {item.quantity})
+                      </small>
                     </div>
 
-                    <div className="col-md-1">
+                    <div className="col-md-1 text-end">
                       <button
                         className="btn btn-outline-danger btn-sm"
                         onClick={() => removeItem(item.cart_id)}
