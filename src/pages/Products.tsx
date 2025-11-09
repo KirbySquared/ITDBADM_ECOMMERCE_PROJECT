@@ -49,20 +49,29 @@ function getMaxQuantity(categoryName: string | undefined): number {
   return 999 // No limit for other categories
 }
 
+// Max price for slider (adjust as needed)
+const MAX_PRICE = 50000
+
 function Products() {
   const { currency } = useCurrency()
   const { user, loading: authLoading } = useAuth()
   const { showSuccess, showError } = useNotification()
   const { branches } = useBranch()
   // Get user's branch_id from profile - check if it exists (including 0 as valid)
-  const userBranchId = user?.branch_id !== undefined && user?.branch_id !== null ? user.branch_id : null
+  const userBranchId =
+    user?.branch_id !== undefined && user?.branch_id !== null ? user.branch_id : null
   // Get branch name from user object or lookup from branches context
-  const branchName = user?.branch_name || (userBranchId != null ? branches.find(b => b.branch_id === userBranchId)?.branch_name : null)
+  const branchName =
+    user?.branch_name ||
+    (userBranchId != null
+      ? branches.find(b => b.branch_id === userBranchId)?.branch_name
+      : null)
+
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [filter, setFilter] = useState<'all'|'consoles'|'accessories'|'games'>('all')
+  const [filter, setFilter] = useState<'all' | 'consoles' | 'accessories' | 'games'>('all')
 
   const [params, setParams] = useSearchParams()
   const [q, setQ] = useState(params.get('q') ?? '')
@@ -72,13 +81,27 @@ function Products() {
   const [month, setMonth] = useState<number | ''>('')
   const [price, setPrice] = useState<[number, number]>([0, 0])
   const [inStock, setInStock] = useState(false)
-  const [sort, setSort] = useState<'newest'|'price_asc'|'price_desc'>('newest')
+  const [sort, setSort] = useState<'newest' | 'price_asc' | 'price_desc'>('newest')
   const [page, setPage] = useState(1)
   const [pagination, setPagination] = useState<Pagination | null>(null)
 
   // UI state for add-to-cart
   const [addingId, setAddingId] = useState<number | null>(null)
   const [addedIds, setAddedIds] = useState<Record<number, boolean>>({})
+
+  // ------- NEW: slider handlers -------
+  const handleMinPriceChange = (val: number) => {
+    const safeVal = Math.max(0, Math.min(val, price[1] || MAX_PRICE))
+    setPage(1)
+    setPrice([safeVal, price[1]])
+  }
+
+  const handleMaxPriceChange = (val: number) => {
+    const safeVal = Math.min(MAX_PRICE, Math.max(val, price[0]))
+    setPage(1)
+    setPrice([price[0], safeVal])
+  }
+  // ------- END slider handlers -------
 
   function buildQS() {
     const sp = new URLSearchParams()
@@ -118,12 +141,12 @@ function Products() {
     if (inStock) {
       out = out.filter(p => (p.stock_quantity ?? 0) > 0)
     }
-    const getAmount = (p: Product) => (p.display_price ?? p.price ?? 0)
+    const getAmount = (p: Product) => p.display_price ?? p.price ?? 0
     if (price[0] > 0) out = out.filter(p => getAmount(p) >= price[0])
     if (price[1] > 0) out = out.filter(p => getAmount(p) <= price[1])
 
-    if (sort === 'price_asc') out.sort((a,b) => getAmount(a) - getAmount(b))
-    if (sort === 'price_desc') out.sort((a,b) => getAmount(b) - getAmount(a))
+    if (sort === 'price_asc') out.sort((a, b) => getAmount(a) - getAmount(b))
+    if (sort === 'price_desc') out.sort((a, b) => getAmount(b) - getAmount(a))
     return out
   }
 
@@ -137,7 +160,9 @@ function Products() {
       if (res.status === 404) {
         // fallback to list
         console.warn('[Products] /products/search not found. Falling back to /products list.')
-        const listRes = await fetch(ENDPOINTS.list(currency, userBranchId), { credentials: 'include' })
+        const listRes = await fetch(ENDPOINTS.list(currency, userBranchId), {
+          credentials: 'include',
+        })
         const listJson = await listRes.json()
         if (!listRes.ok || listJson.success === false) {
           throw new Error(listJson.message || 'Failed to load products')
@@ -172,27 +197,40 @@ function Products() {
       fetchSearch()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, userBranchId, q, platform, genreId, year, month, price, inStock, sort, page, authLoading])
+  }, [
+    currency,
+    userBranchId,
+    q,
+    platform,
+    genreId,
+    year,
+    month,
+    price,
+    inStock,
+    sort,
+    page,
+    authLoading,
+  ])
 
   const filtered =
     filter === 'all'
       ? products
       : products.filter(p => (p.category_name || '').toLowerCase() === filter)
 
-  // ---------- NEW: add-to-cart with category restrictions ----------
+  // ---------- add-to-cart with category restrictions ----------
   const addToCart = async (product: Product, quantity: number = 1) => {
     if ((product.stock_quantity ?? 0) <= 0) {
       showError('Product is out of stock')
       return
     }
-    
+
     // Check category-based quantity restrictions
     const maxQty = getMaxQuantity(product.category_name)
     if (quantity > maxQty) {
       showError(`Maximum quantity for ${product.category_name} category is ${maxQty}`)
       return
     }
-    
+
     setAddingId(product.product_id)
     try {
       const token = localStorage.getItem('token')
@@ -204,27 +242,27 @@ function Products() {
       const res = await fetch('http://localhost:8000/api/cart', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ product_id: product.product_id, quantity: quantity })
+        body: JSON.stringify({ product_id: product.product_id, quantity: quantity }),
       })
 
       // decode body (even on errors) so we can show the real reason
       const text = await res.text()
       let json: any = {}
-      try { 
-        json = text ? JSON.parse(text) : {} 
+      try {
+        json = text ? JSON.parse(text) : {}
       } catch (e) {
         console.error('Failed to parse cart response:', text)
       }
 
       if (!res.ok || json?.success === false) {
-        console.error('Add to cart failed:', { 
-          status: res.status, 
+        console.error('Add to cart failed:', {
+          status: res.status,
           statusText: res.statusText,
           body: text,
-          json: json
+          json: json,
         })
         const msg =
           json?.message ||
@@ -289,8 +327,7 @@ function Products() {
         <div className="row">
           <div className="col-12 text-center mb-5">
             <h1 className="display-4 fw-bold">
-              Products{' '}
-              <span className="badge bg-secondary">{currency}</span>
+              Products <span className="badge bg-secondary">{currency}</span>
               {branchName && <span className="badge bg-info text-dark ms-2">{branchName}</span>}
             </h1>
           </div>
@@ -299,23 +336,35 @@ function Products() {
         <div className="row">
           {/* Sidebar */}
           <aside className="col-lg-3 mb-4">
-            <input className="form-control mb-3" value={q} onChange={e=>{ setPage(1); setQ(e.target.value) }} placeholder="Search…" />
+            <input
+              className="form-control mb-3"
+              value={q}
+              onChange={e => {
+                setPage(1)
+                setQ(e.target.value)
+              }}
+              placeholder="Search…"
+            />
 
             <div className="mb-3">
               <label className="form-label">Platform</label>
-              {['PS5','Xbox','Switch','PC'].map(pl => (
+              {['PS5', 'Xbox', 'Switch', 'PC'].map(pl => (
                 <div key={pl} className="form-check">
                   <input
                     type="checkbox"
                     className="form-check-input"
                     id={`pl-${pl}`}
                     checked={platform.includes(pl)}
-                    onChange={(e) => {
+                    onChange={e => {
                       setPage(1)
-                      setPlatform(prev => e.target.checked ? [...prev, pl] : prev.filter(p => p !== pl))
+                      setPlatform(prev =>
+                        e.target.checked ? [...prev, pl] : prev.filter(p => p !== pl),
+                      )
                     }}
                   />
-                  <label htmlFor={`pl-${pl}`} className="form-check-label">{pl}</label>
+                  <label htmlFor={`pl-${pl}`} className="form-check-label">
+                    {pl}
+                  </label>
                 </div>
               ))}
             </div>
@@ -325,7 +374,10 @@ function Products() {
               <select
                 className="form-select"
                 value={genreId ?? ''}
-                onChange={e => { setPage(1); setGenreId(e.target.value ? Number(e.target.value) : null) }}
+                onChange={e => {
+                  setPage(1)
+                  setGenreId(e.target.value ? Number(e.target.value) : null)
+                }}
               >
                 <option value="">All Genres</option>
                 <option value="1">Action</option>
@@ -337,34 +389,105 @@ function Products() {
             </div>
 
             <div className="d-flex gap-2 mb-3">
-              <input type="number" placeholder="Year" className="form-control" value={year} onChange={e=>{ setPage(1); setYear(e.target.value ? Number(e.target.value) : '') }}/>
-              <input type="number" placeholder="Month" className="form-control" value={month} onChange={e=>{ setPage(1); setMonth(e.target.value ? Number(e.target.value) : '') }}/>
+              <input
+                type="number"
+                placeholder="Year"
+                className="form-control"
+                value={year}
+                onChange={e => {
+                  setPage(1)
+                  setYear(e.target.value ? Number(e.target.value) : '')
+                }}
+              />
+              <input
+                type="number"
+                placeholder="Month"
+                className="form-control"
+                value={month}
+                onChange={e => {
+                  setPage(1)
+                  setMonth(e.target.value ? Number(e.target.value) : '')
+                }}
+              />
             </div>
 
-            <div className="d-flex gap-2 mb-3">
-              <input type="number" className="form-control" placeholder={`Min (${currency})`} value={price[0] || ''} onChange={e=>{ setPage(1); setPrice([Number(e.target.value||0), price[1]]) }}/>
-              <input type="number" className="form-control" placeholder={`Max (${currency})`} value={price[1] || ''} onChange={e=>{ setPage(1); setPrice([price[0], Number(e.target.value||0)]) }}/>
+            {/* NEW: Price range slider */}
+            <div className="mb-3">
+              <label className="form-label">Price range ({currency})</label>
+              <div className="d-flex flex-column gap-2">
+                <input
+                  type="range"
+                  className="form-range"
+                  min={0}
+                  max={MAX_PRICE}
+                  step={500}
+                  value={price[0]}
+                  onChange={e => handleMinPriceChange(Number(e.target.value))}
+                />
+                <input
+                  type="range"
+                  className="form-range"
+                  min={0}
+                  max={MAX_PRICE}
+                  step={500}
+                  value={price[1]}
+                  onChange={e => handleMaxPriceChange(Number(e.target.value))}
+                />
+              </div>
+              <div className="d-flex justify-content-between small text-muted mt-1">
+                <span>
+                  Min:{' '}
+                  {price[0] > 0 ? formatPrice(price[0], currency) : 'Any'}
+                </span>
+                <span>
+                  Max:{' '}
+                  {price[1] > 0 ? formatPrice(price[1], currency) : 'Any'}
+                </span>
+              </div>
             </div>
 
             <div className="form-check mb-3">
-              <input className="form-check-input" type="checkbox" id="instock" checked={inStock} onChange={e=>{ setPage(1); setInStock(e.target.checked) }} />
-              <label className="form-check-label" htmlFor="instock">Only show in-stock</label>
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="instock"
+                checked={inStock}
+                onChange={e => {
+                  setPage(1)
+                  setInStock(e.target.checked)
+                }}
+              />
+              <label className="form-check-label" htmlFor="instock">
+                Only show in-stock
+              </label>
             </div>
 
-            <select className="form-select mb-4" value={sort} onChange={e => { setPage(1); setSort(e.target.value as any) }}>
+            <select
+              className="form-select mb-4"
+              value={sort}
+              onChange={e => {
+                setPage(1)
+                setSort(e.target.value as any)
+              }}
+            >
               <option value="newest">Newest</option>
               <option value="price_asc">Price: Low to High</option>
               <option value="price_desc">Price: High to Low</option>
             </select>
 
             <div className="d-flex flex-wrap gap-2">
-              {(['all','consoles','accessories','games'] as const).map(k => (
+              {(['all', 'consoles', 'accessories', 'games'] as const).map(k => (
                 <button
                   key={k}
-                  className={`btn btn-sm ${filter === k ? 'btn-primary' : 'btn-outline-primary'}`}
-                  onClick={() => { setPage(1); setFilter(k) }}
+                  className={`btn btn-sm ${
+                    filter === k ? 'btn-primary' : 'btn-outline-primary'
+                  }`}
+                  onClick={() => {
+                    setPage(1)
+                    setFilter(k)
+                  }}
                 >
-                  {k === 'all' ? 'All Products' : k[0].toUpperCase()+k.slice(1)}
+                  {k === 'all' ? 'All Products' : k[0].toUpperCase() + k.slice(1)}
                 </button>
               ))}
             </div>
@@ -381,28 +504,31 @@ function Products() {
                 return (
                   <div key={product.product_id} className="col-xl-4 col-md-6">
                     <div className="card h-100 shadow-sm">
-                      <div className="card-img-top" style={{ 
-                        height: '200px', 
-                        minHeight: '200px',
-                        maxHeight: '200px',
-                        overflow: 'hidden',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: '#f8f9fa'
-                      }}>
+                      <div
+                        className="card-img-top"
+                        style={{
+                          height: '200px',
+                          minHeight: '200px',
+                          maxHeight: '200px',
+                          overflow: 'hidden',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: '#f8f9fa',
+                        }}
+                      >
                         {product.primary_image_url ? (
                           <img
                             src={product.primary_image_url}
                             alt={product.product_name}
-                            style={{ 
+                            style={{
                               objectFit: 'contain',
                               width: '100%',
                               height: '100%',
                               maxWidth: '100%',
-                              maxHeight: '100%'
+                              maxHeight: '100%',
                             }}
-                            onError={(e) => {
+                            onError={e => {
                               const t = e.currentTarget as HTMLImageElement
                               t.src =
                                 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4='
@@ -418,11 +544,19 @@ function Products() {
                       <div className="card-body d-flex flex-column">
                         <div className="d-flex justify-content-between align-items-start">
                           <h5 className="card-title mb-0">{product.product_name}</h5>
-                          <span className={`badge ${inStockNow ? 'bg-success' : 'bg-danger'}`}>
+                          <span
+                            className={`badge ${
+                              inStockNow ? 'bg-success' : 'bg-danger'
+                            }`}
+                          >
                             {inStockNow ? 'In Stock' : 'Out of Stock'}
                           </span>
                         </div>
-                        {product.brand && <p className="card-text text-muted small mt-1">{product.brand}</p>}
+                        {product.brand && (
+                          <p className="card-text text-muted small mt-1">
+                            {product.brand}
+                          </p>
+                        )}
                         <p className="card-text text-primary fw-bold fs-5">
                           {formatPrice(amount, product.currency)}
                         </p>
@@ -430,14 +564,18 @@ function Products() {
                           Qty: {product.stock_quantity ?? 0}
                           {product.category_name && (
                             <span className="ms-2">
-                              (Max: {getMaxQuantity(product.category_name)} per {product.category_name})
+                              (Max: {getMaxQuantity(product.category_name)} per{' '}
+                              {product.category_name})
                             </span>
                           )}
                         </p>
 
                         <div className="mt-auto">
                           <div className="d-grid gap-2">
-                            <Link to={`/products/${product.product_id}`} className="btn btn-outline-primary">
+                            <Link
+                              to={`/products/${product.product_id}`}
+                              className="btn btn-outline-primary"
+                            >
                               View Details
                             </Link>
                             <button
@@ -448,8 +586,10 @@ function Products() {
                               {isAdding
                                 ? 'Adding…'
                                 : isAdded
-                                  ? 'Added ✓'
-                                  : (inStockNow ? 'Add to Cart' : 'Out of Stock')}
+                                ? 'Added ✓'
+                                : inStockNow
+                                ? 'Add to Cart'
+                                : 'Out of Stock'}
                             </button>
                           </div>
                         </div>
@@ -462,13 +602,21 @@ function Products() {
 
             {pagination && pagination.pages > 1 && (
               <div className="d-flex justify-content-center mt-4 gap-2">
-                <button className="btn btn-outline-secondary" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                <button
+                  className="btn btn-outline-secondary"
+                  disabled={page <= 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                >
                   ‹ Prev
-                </button>
+                </button> 
                 <span className="align-self-center small">
                   Page {pagination.page} of {pagination.pages} — {pagination.total} results
                 </span>
-                <button className="btn btn-outline-secondary" disabled={page >= pagination.pages} onClick={() => setPage(p => Math.min(pagination.pages, p + 1))}>
+                <button
+                  className="btn btn-outline-secondary"
+                  disabled={page >= pagination.pages}
+                  onClick={() => setPage(p => Math.min(pagination.pages, p + 1))}
+                >
                   Next ›
                 </button>
               </div>
