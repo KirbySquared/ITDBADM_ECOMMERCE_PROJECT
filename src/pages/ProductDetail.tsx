@@ -43,15 +43,17 @@ type Product = {
 export default function ProductDetail() {
   const { id = '' } = useParams<{ id: string }>()
   const { currency } = useCurrency()
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const { showSuccess, showError } = useNotification()
-  // Get user's branch_id from profile
-  const userBranchId = user?.branch_id || null
+  // Get user's branch_id from profile - check if it exists (including 0 as valid)
+  const userBranchId = user?.branch_id !== undefined && user?.branch_id !== null ? user.branch_id : null
   const [product, setProduct] = useState<Product | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [quantity, setQuantity] = useState(1)
   const [addingToCart, setAddingToCart] = useState(false)
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0)
+  const [zoomLevel, setZoomLevel] = useState(1)
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -89,9 +91,12 @@ export default function ProductDetail() {
       }
     }
 
-    if (id) fetchProduct()
+    // Wait for auth to finish loading before fetching product
+    if (id && !authLoading) {
+      fetchProduct()
+    }
     // Re-run when branch or currency changes
-  }, [id, currency, userBranchId])
+  }, [id, currency, userBranchId, authLoading])
 
   // Reset quantity when product changes or when it exceeds max
   // This must be before any early returns to follow Rules of Hooks
@@ -103,6 +108,9 @@ export default function ProductDetail() {
       if (quantity > max) {
         setQuantity(Math.max(1, max))
       }
+      // Reset selected image and zoom when product changes
+      setSelectedImageIndex(0)
+      setZoomLevel(1)
     }
   }, [product, quantity])
 
@@ -131,6 +139,27 @@ export default function ProductDetail() {
   const maxQuantity = getMaxQuantity(product.category_name)
   const availableStock = product.stock_quantity ?? 0
   const effectiveMax = Math.min(maxQuantity, availableStock)
+
+  // Get all available images
+  const allImages: ProductImage[] = product.images && product.images.length > 0
+    ? product.images
+    : product.primary_image_url
+      ? [{ image_id: 0, image_url: product.primary_image_url, is_primary: 1 } as ProductImage]
+      : []
+
+  const currentImage = allImages[selectedImageIndex] || allImages[0]
+
+  const handleZoomIn = () => {
+    setZoomLevel(prev => Math.min(prev + 0.25, 3))
+  }
+
+  const handleZoomOut = () => {
+    setZoomLevel(prev => Math.max(prev - 0.25, 0.5))
+  }
+
+  const handleResetZoom = () => {
+    setZoomLevel(1)
+  }
 
   const handleQuantityChange = (newQty: number) => {
     const max = Math.min(maxQuantity, availableStock)
@@ -217,31 +246,107 @@ export default function ProductDetail() {
     <div className="container py-5">
       <div className="row g-4">
         <div className="col-md-6">
-          <div className="border rounded" style={{ height: 380, overflow: 'hidden' }}>
-            {product.primary_image_url ? (
-              <img
-                src={product.primary_image_url}
-                alt={product.product_name}
-                className="w-100 h-100"
-                style={{ objectFit: 'cover' }}
-              />
-            ) : (
-              <div className="bg-light h-100 d-flex align-items-center justify-content-center">
-                <i className="bi bi-image text-muted fs-1"></i>
-              </div>
-            )}
+          <div className="product-image-container">
+            <div 
+              className="main-image-wrapper"
+              style={{ 
+                minHeight: '500px', 
+                minWidth: '100%',
+                height: '500px',
+                overflow: 'hidden',
+                position: 'relative'
+              }}
+            >
+              {currentImage ? (
+                <>
+                  <img
+                    src={currentImage.image_url}
+                    alt={currentImage.alt_text || product.product_name}
+                    style={{ 
+                      objectFit: 'contain',
+                      transform: `scale(${zoomLevel})`,
+                      transition: 'transform 0.3s ease',
+                      width: '100%',
+                      height: '100%'
+                    }}
+                    onError={(e) => {
+                      const t = e.target as HTMLImageElement
+                      t.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4='
+                    }}
+                  />
+                  {/* Zoom Controls */}
+                  <div 
+                    className="position-absolute top-0 end-0 m-2 d-flex flex-column gap-1"
+                    style={{ zIndex: 10 }}
+                  >
+                    <button
+                      className="btn btn-sm btn-light shadow-sm"
+                      onClick={handleZoomIn}
+                      disabled={zoomLevel >= 3}
+                      title="Zoom In"
+                    >
+                      <i className="bi bi-zoom-in"></i>
+                    </button>
+                    <button
+                      className="btn btn-sm btn-light shadow-sm"
+                      onClick={handleZoomOut}
+                      disabled={zoomLevel <= 0.5}
+                      title="Zoom Out"
+                    >
+                      <i className="bi bi-zoom-out"></i>
+                    </button>
+                    <button
+                      className="btn btn-sm btn-light shadow-sm"
+                      onClick={handleResetZoom}
+                      disabled={zoomLevel === 1}
+                      title="Reset Zoom"
+                    >
+                      <i className="bi bi-arrow-clockwise"></i>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="bg-light h-100 d-flex align-items-center justify-content-center">
+                  <i className="bi bi-image text-muted fs-1"></i>
+                </div>
+              )}
+            </div>
           </div>
 
-          {product.images && product.images.length > 1 && (
-            <div className="d-flex gap-2 mt-3 flex-wrap">
-              {product.images.map(img => (
-                <img
+          {/* Image Thumbnails */}
+          {allImages.length > 1 && (
+            <div className="image-thumbnails d-flex gap-2 mt-3 flex-wrap">
+              {allImages.map((img, index) => (
+                <button
                   key={img.image_id}
-                  src={img.image_url}
-                  alt={img.alt_text || ''}
-                  style={{ width: 80, height: 80, objectFit: 'cover' }}
-                  className="rounded border"
-                />
+                  onClick={() => {
+                    setSelectedImageIndex(index)
+                    setZoomLevel(1) // Reset zoom when changing image
+                  }}
+                  className={`rounded border p-0 ${selectedImageIndex === index ? 'border-primary' : ''}`}
+                  style={{ 
+                    width: '80px', 
+                    height: '80px', 
+                    overflow: 'hidden',
+                    background: 'white'
+                  }}
+                  title={img.alt_text || `Image ${index + 1}`}
+                >
+                  <img
+                    src={img.image_url}
+                    alt={img.alt_text || ''}
+                    style={{ 
+                      width: '100%', 
+                      height: '100%', 
+                      objectFit: 'cover',
+                      pointerEvents: 'none'
+                    }}
+                    onError={(e) => {
+                      const t = e.target as HTMLImageElement
+                      t.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4='
+                    }}
+                  />
+                </button>
               ))}
             </div>
           )}

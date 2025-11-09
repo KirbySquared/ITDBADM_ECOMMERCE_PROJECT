@@ -1,10 +1,11 @@
 .profile {
   padding: 40px 0;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  min-height: 80vh;
 }
 
 .profile h1 {
-  text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: 0;
   font-size: 2.5rem;
   color: #333;
 }
@@ -59,7 +60,79 @@
   text-align: center;
 }
 
+.profile .nav-tabs {
+  border-bottom: 2px solid #dee2e6;
+}
+
+.profile .nav-tabs .nav-link {
+  color: #495057;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 1rem 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.profile .nav-tabs .nav-link:hover {
+  border-bottom-color: #0d6efd;
+  color: #0d6efd;
+}
+
+.profile .nav-tabs .nav-link.active {
+  color: #0d6efd;
+  border-bottom-color: #0d6efd;
+  background: transparent;
+  font-weight: 600;
+}
+
+.profile .card {
+  border: none;
+  border-radius: 12px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.profile .card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1) !important;
+}
+
+.profile .card-header {
+  border-radius: 12px 12px 0 0 !important;
+  border-bottom: 2px solid #dee2e6;
+  font-weight: 600;
+}
+
+.profile .table {
+  margin-bottom: 0;
+}
+
+.profile .table thead th {
+  border-bottom: 2px solid #dee2e6;
+  font-weight: 600;
+  color: #495057;
+  background: #f8f9fa;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+  letter-spacing: 0.5px;
+}
+
+.profile .table tbody tr {
+  transition: background-color 0.2s ease;
+}
+
+.profile .table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.profile .badge {
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+}
+
 @media (max-width: 768px) {
+  .profile {
+    padding: 20px 0;
+  }
+
   .profile-content {
     grid-template-columns: 1fr;
     gap: 30px;
@@ -68,5 +141,19 @@
   .profile-info,
   .profile-actions {
     padding: 20px;
+  }
+
+  .profile .nav-tabs .nav-link {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+  }
+
+  .profile .table {
+    font-size: 0.875rem;
+  }
+
+  .profile .table th,
+  .profile .table td {
+    padding: 0.5rem;
   }
 }

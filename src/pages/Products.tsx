@@ -4,6 +4,7 @@ import { formatPrice } from '../utils/currency'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../hooks/useAuth'
 import { useNotification } from '../context/NotificationContext'
+import { useBranch } from '../context/BranchContext'
 import { api } from '../api/config'
 import './Products.css'
 
@@ -50,10 +51,13 @@ function getMaxQuantity(categoryName: string | undefined): number {
 
 function Products() {
   const { currency } = useCurrency()
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const { showSuccess, showError } = useNotification()
-  // Get user's branch_id from profile (stored in localStorage)
-  const userBranchId = user?.branch_id || null
+  const { branches } = useBranch()
+  // Get user's branch_id from profile - check if it exists (including 0 as valid)
+  const userBranchId = user?.branch_id !== undefined && user?.branch_id !== null ? user.branch_id : null
+  // Get branch name from user object or lookup from branches context
+  const branchName = user?.branch_name || (userBranchId != null ? branches.find(b => b.branch_id === userBranchId)?.branch_name : null)
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -163,9 +167,12 @@ function Products() {
   }
 
   useEffect(() => {
-    fetchSearch()
+    // Wait for auth to finish loading before fetching products
+    if (!authLoading) {
+      fetchSearch()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, userBranchId, q, platform, genreId, year, month, price, inStock, sort, page])
+  }, [currency, userBranchId, q, platform, genreId, year, month, price, inStock, sort, page, authLoading])
 
   const filtered =
     filter === 'all'
@@ -284,7 +291,7 @@ function Products() {
             <h1 className="display-4 fw-bold">
               Products{' '}
               <span className="badge bg-secondary">{currency}</span>
-              {userBranchId != null && <span className="badge bg-info text-dark ms-2">Branch #{userBranchId}</span>}
+              {branchName && <span className="badge bg-info text-dark ms-2">{branchName}</span>}
             </h1>
           </div>
         </div>
@@ -374,13 +381,27 @@ function Products() {
                 return (
                   <div key={product.product_id} className="col-xl-4 col-md-6">
                     <div className="card h-100 shadow-sm">
-                      <div className="card-img-top" style={{ height: '200px', overflow: 'hidden' }}>
+                      <div className="card-img-top" style={{ 
+                        height: '200px', 
+                        minHeight: '200px',
+                        maxHeight: '200px',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#f8f9fa'
+                      }}>
                         {product.primary_image_url ? (
                           <img
                             src={product.primary_image_url}
                             alt={product.product_name}
-                            className="w-100 h-100"
-                            style={{ objectFit: 'cover' }}
+                            style={{ 
+                              objectFit: 'contain',
+                              width: '100%',
+                              height: '100%',
+                              maxWidth: '100%',
+                              maxHeight: '100%'
+                            }}
                             onError={(e) => {
                               const t = e.currentTarget as HTMLImageElement
                               t.src =
@@ -388,7 +409,7 @@ function Products() {
                             }}
                           />
                         ) : (
-                          <div className="bg-light d-flex align-items-center justify-content-center h-100">
+                          <div className="bg-light d-flex align-items-center justify-content-center h-100 w-100">
                             <i className="bi bi-image text-muted fs-1"></i>
                           </div>
                         )}

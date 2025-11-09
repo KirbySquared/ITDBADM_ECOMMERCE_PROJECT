@@ -120,10 +120,22 @@ switch ($path) {
         if ($method === 'GET') {
             // Check if there's an ID in the query string
             if (isset($_GET['id']) && is_numeric($_GET['id'])) {
+                error_log("Products: Routing to get_product.php (ID: " . $_GET['id'] . ")");
                 include 'products/get_product.php';
             } else {
+                error_log("Products: Routing to get_products.php");
                 include 'products/get_products.php';
             }
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
+    case 'products/search':
+        if ($method === 'GET') {
+            error_log("Products: Routing to search.php");
+            error_log("Products/Search: Query params: " . json_encode($_GET));
+            include 'products/search.php';
         } else {
             sendError('Method not allowed', 405);
         }
@@ -159,6 +171,32 @@ switch ($path) {
         }
         break;
         
+    case 'checkout/lock-currency':
+        if ($method === 'POST') {
+            include 'checkout/lock-currency.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
+    case 'checkout/create-order':
+        if ($method === 'POST') {
+            include 'checkout/create-order.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
+    case 'orders':
+        // User-facing orders endpoint - allows users to view their own orders
+        // Handles both /api/orders and /api/orders/{id}
+        if ($method === 'GET') {
+            include 'orders/index.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
     case 'admin':
     case 'admin/login':
     case 'admin/check_auth':
@@ -175,6 +213,12 @@ switch ($path) {
         break;
         
     default:
+        // Check if it's an orders route with ID (e.g., orders/4)
+        if (preg_match('/^orders\/\d+$/', $path) && $method === 'GET') {
+            include 'orders/index.php';
+            break;
+        }
+        
         // Check if it's an admin route with ID (e.g., admin/users/123, admin/products/123/images, admin/products/123/inventory, admin/orders/123, admin/branches/123)
         if (preg_match('/^admin\/(users|categories|branches|products|orders)\/\d+$/', $path) || 
             preg_match('/^admin\/products\/\d+\/(images|inventory)/', $path)) {

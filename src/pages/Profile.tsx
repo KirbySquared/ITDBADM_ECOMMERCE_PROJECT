@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useLocation } from 'react-router-dom'
 import EditProfileModal from '../components/EditProfileModal'
+import { api } from '../api/config'
+import { formatPrice } from '../utils/currency'
 import './Profile.css'
 
 interface User {
@@ -15,9 +17,25 @@ interface User {
   branch_name?: string
 }
 
+interface Order {
+  order_id: number
+  order_date: string
+  total_amount: number
+  currency: string
+  status: string
+  shipping_address: string
+  payment_method?: string
+  payment_status?: string
+  items_count: number
+}
+
 function Profile() {
   const [user, setUser] = useState<User | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
+  const location = useLocation()
+  const [activeTab, setActiveTab] = useState<'profile' | 'orders'>('profile')
+  const [orders, setOrders] = useState<Order[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -36,6 +54,75 @@ function Profile() {
       navigate('/login')
     }
   }, [navigate])
+
+  // Handle activeTab from navigation state (e.g., when coming back from order details)
+  useEffect(() => {
+    if (location.state?.activeTab) {
+      setActiveTab(location.state.activeTab)
+    }
+  }, [location.state])
+
+  useEffect(() => {
+    if (activeTab === 'orders') {
+      fetchOrders()
+    }
+  }, [activeTab])
+
+  const fetchOrders = async () => {
+    setOrdersLoading(true)
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        navigate('/login')
+        return
+      }
+
+      const response = await fetch(api('/orders'), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.status === 401) {
+        navigate('/login')
+        return
+      }
+
+      const data = await response.json()
+      if (data.success && data.data) {
+        setOrders(data.data.orders || [])
+      }
+    } catch (err) {
+      console.error('Error fetching orders:', err)
+    } finally {
+      setOrdersLoading(false)
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    const statusConfig: Record<string, { class: string; label: string }> = {
+      pending: { class: 'warning', label: 'Pending' },
+      processing: { class: 'info', label: 'Processing' },
+      shipped: { class: 'primary', label: 'Shipped' },
+      delivered: { class: 'success', label: 'Delivered' },
+      cancelled: { class: 'danger', label: 'Cancelled' }
+    }
+    const config = statusConfig[status] || { class: 'secondary', label: status }
+    return <span className={`badge bg-${config.class}`}>{config.label}</span>
+  }
+
+  const getPaymentStatusBadge = (status: string) => {
+    if (!status) return null
+    const statusConfig: Record<string, { class: string; label: string }> = {
+      pending: { class: 'warning', label: 'Pending' },
+      completed: { class: 'success', label: 'Completed' },
+      failed: { class: 'danger', label: 'Failed' },
+      refunded: { class: 'secondary', label: 'Refunded' }
+    }
+    const config = statusConfig[status] || { class: 'secondary', label: status }
+    return <span className={`badge bg-${config.class}`}>{config.label}</span>
+  }
 
   const handleEditProfile = async (userData: Partial<User> & { password?: string }) => {
     try {
@@ -110,89 +197,216 @@ function Profile() {
 
   return (
     <div className="profile">
-      <div className="container">
+      <div className="container py-4">
         <div className="d-flex justify-content-between align-items-center mb-4">
-          <h1>User Profile</h1>
+          <h1 className="display-5 fw-bold">My Account</h1>
           <Link to="/" className="btn btn-outline-primary">
             <i className="bi bi-house me-2"></i>
             Back to Home
           </Link>
         </div>
-        
-        <div className="row g-4">
-          <div className="col-md-8">
-            <div className="card">
+
+        {/* Tabs */}
+        <ul className="nav nav-tabs mb-4" role="tablist">
+          <li className="nav-item" role="presentation">
+            <button
+              className={`nav-link ${activeTab === 'profile' ? 'active' : ''}`}
+              onClick={() => setActiveTab('profile')}
+              type="button"
+            >
+              <i className="bi bi-person me-2"></i>
+              Profile Information
+            </button>
+          </li>
+          <li className="nav-item" role="presentation">
+            <button
+              className={`nav-link ${activeTab === 'orders' ? 'active' : ''}`}
+              onClick={() => setActiveTab('orders')}
+              type="button"
+            >
+              <i className="bi bi-bag-check me-2"></i>
+              My Orders
+              {orders.length > 0 && (
+                <span className="badge bg-primary ms-2">{orders.length}</span>
+              )}
+            </button>
+          </li>
+        </ul>
+
+        {/* Tab Content */}
+        <div className="tab-content">
+          {activeTab === 'profile' && (
+            <div className="row g-4">
+              <div className="col-md-8">
+                <div className="card shadow-sm">
+                  <div className="card-header bg-primary text-white">
+                    <h4 className="mb-0">
+                      <i className="bi bi-person-circle me-2"></i>
+                      Account Information
+                    </h4>
+                  </div>
+                  <div className="card-body">
+                    <div className="info-item">
+                      <label><i className="bi bi-person me-2"></i>Username:</label>
+                      <span>{user.username}</span>
+                    </div>
+                    <div className="info-item">
+                      <label><i className="bi bi-person-badge me-2"></i>Full Name:</label>
+                      <span>{user.first_name} {user.last_name}</span>
+                    </div>
+                    <div className="info-item">
+                      <label><i className="bi bi-envelope me-2"></i>Email:</label>
+                      <span>{user.email}</span>
+                    </div>
+                    {user.phone && (
+                      <div className="info-item">
+                        <label><i className="bi bi-telephone me-2"></i>Phone:</label>
+                        <span>{user.phone}</span>
+                      </div>
+                    )}
+                    {user.address && (
+                      <div className="info-item">
+                        <label><i className="bi bi-geo-alt me-2"></i>Address:</label>
+                        <span>{user.address}</span>
+                      </div>
+                    )}
+                    {user.branch_name && (
+                      <div className="info-item">
+                        <label><i className="bi bi-shop me-2"></i>Nearest Branch:</label>
+                        <span>{user.branch_name}</span>
+                      </div>
+                    )}
+                    {!user.branch_name && (
+                      <div className="info-item">
+                        <label><i className="bi bi-shop me-2"></i>Nearest Branch:</label>
+                        <span className="text-muted">Not selected</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="col-md-4">
+                <div className="card shadow-sm">
+                  <div className="card-header">
+                    <h5 className="mb-0">
+                      <i className="bi bi-gear me-2"></i>
+                      Account Actions
+                    </h5>
+                  </div>
+                  <div className="card-body">
+                    <div className="d-grid gap-2">
+                      <button 
+                        className="btn btn-primary"
+                        onClick={() => setShowEditModal(true)}
+                      >
+                        <i className="bi bi-pencil me-2"></i>
+                        Edit Profile
+                      </button>
+                      <Link to="/products" className="btn btn-outline-primary">
+                        <i className="bi bi-box-seam me-2"></i>
+                        Browse Products
+                      </Link>
+                      <Link to="/cart" className="btn btn-outline-primary">
+                        <i className="bi bi-cart me-2"></i>
+                        View Cart
+                      </Link>
+                      <button className="btn btn-danger" onClick={handleLogout}>
+                        <i className="bi bi-box-arrow-right me-2"></i>
+                        Logout
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'orders' && (
+            <div className="card shadow-sm">
+              <div className="card-header bg-primary text-white">
+                <h4 className="mb-0">
+                  <i className="bi bi-bag-check me-2"></i>
+                  Order History
+                </h4>
+              </div>
               <div className="card-body">
-                <h2 className="mb-4">Account Information</h2>
-                
-                <div className="info-item">
-                  <label><i className="bi bi-person me-2"></i>Username:</label>
-                  <span>{user.username}</span>
-                </div>
-                <div className="info-item">
-                  <label><i className="bi bi-person-badge me-2"></i>Full Name:</label>
-                  <span>{user.first_name} {user.last_name}</span>
-                </div>
-                <div className="info-item">
-                  <label><i className="bi bi-envelope me-2"></i>Email:</label>
-                  <span>{user.email}</span>
-                </div>
-                {user.phone && (
-                  <div className="info-item">
-                    <label><i className="bi bi-telephone me-2"></i>Phone:</label>
-                    <span>{user.phone}</span>
+                {ordersLoading ? (
+                  <div className="text-center py-5">
+                    <div className="spinner-border text-primary" role="status">
+                      <span className="visually-hidden">Loading...</span>
+                    </div>
+                    <p className="mt-3 text-muted">Loading your orders...</p>
                   </div>
-                )}
-                {user.address && (
-                  <div className="info-item">
-                    <label><i className="bi bi-geo-alt me-2"></i>Address:</label>
-                    <span>{user.address}</span>
+                ) : orders.length === 0 ? (
+                  <div className="text-center py-5">
+                    <i className="bi bi-bag-x text-muted" style={{ fontSize: '4rem' }}></i>
+                    <h4 className="mt-3 text-muted">No Recent Orders</h4>
+                    <p className="text-muted mb-4">
+                      You haven't placed any orders yet. Start shopping to see your order history here!
+                    </p>
+                    <Link to="/products" className="btn btn-primary">
+                      <i className="bi bi-box-seam me-2"></i>
+                      Browse Products
+                    </Link>
                   </div>
-                )}
-                {user.branch_name && (
-                  <div className="info-item">
-                    <label><i className="bi bi-shop me-2"></i>Nearest Branch:</label>
-                    <span>{user.branch_name}</span>
-                  </div>
-                )}
-                {!user.branch_name && (
-                  <div className="info-item">
-                    <label><i className="bi bi-shop me-2"></i>Nearest Branch:</label>
-                    <span className="text-muted">Not selected</span>
+                ) : (
+                  <div className="table-responsive">
+                    <table className="table table-hover align-middle">
+                      <thead className="table-light">
+                        <tr>
+                          <th>Order #</th>
+                          <th>Date</th>
+                          <th>Items</th>
+                          <th>Total Amount</th>
+                          <th>Status</th>
+                          <th>Payment</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orders.map((order) => (
+                          <tr key={order.order_id}>
+                            <td>
+                              <strong className="text-primary">#{order.order_id}</strong>
+                            </td>
+                            <td>
+                              {new Date(order.order_date).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                              })}
+                            </td>
+                            <td>
+                              <span className="badge bg-secondary">
+                                {order.items_count} item{order.items_count !== 1 ? 's' : ''}
+                              </span>
+                            </td>
+                            <td>
+                              <strong>{formatPrice(order.total_amount, order.currency)}</strong>
+                            </td>
+                            <td>{getStatusBadge(order.status)}</td>
+                            <td>
+                              {getPaymentStatusBadge(order.payment_status || 'pending')}
+                            </td>
+                            <td>
+                              <Link
+                                to={`/orders/${order.order_id}`}
+                                className="btn btn-sm btn-outline-primary"
+                              >
+                                <i className="bi bi-eye me-1"></i>
+                                View Details
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
             </div>
-          </div>
-          
-          <div className="col-md-4">
-            <div className="card">
-              <div className="card-body">
-                <h2 className="mb-4">Account Actions</h2>
-                <div className="d-grid gap-2">
-                  <button 
-                    className="btn btn-primary"
-                    onClick={() => setShowEditModal(true)}
-                  >
-                    <i className="bi bi-pencil me-2"></i>
-                    Edit Profile
-                  </button>
-                  <Link to="/products" className="btn btn-outline-primary">
-                    <i className="bi bi-box-seam me-2"></i>
-                    Browse Products
-                  </Link>
-                  <Link to="/cart" className="btn btn-outline-primary">
-                    <i className="bi bi-cart me-2"></i>
-                    View Cart
-                  </Link>
-                  <button className="btn btn-danger" onClick={handleLogout}>
-                    <i className="bi bi-box-arrow-right me-2"></i>
-                    Logout
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 

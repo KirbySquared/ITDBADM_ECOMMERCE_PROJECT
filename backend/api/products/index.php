@@ -1,4 +1,8 @@
 <?php
+error_log("=== PRODUCTS/INDEX.PHP CALLED ===");
+error_log("Request URI: " . $_SERVER['REQUEST_URI']);
+error_log("GET params: " . json_encode($_GET));
+
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 
@@ -10,6 +14,8 @@ try {
   $id       = isset($_GET['id']) ? (int)$_GET['id'] : 0;
   $limit    = isset($_GET['limit']) ? (int)$_GET['limit'] : 0;
   $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+  
+  error_log("Products/Index: branchId = " . $branchId . ", id = " . $id . ", currency = " . $currency . ", limit = " . $limit);
 
   // validate currency + get rate
   $curStmt = $pdo->prepare("SELECT code, rate_to_php FROM currencies WHERE code = ? AND is_active = 1 LIMIT 1");
@@ -29,6 +35,14 @@ try {
       : "(SELECT COALESCE(SUM(pi.stock_qty),0) FROM product_inventory pi
            WHERE pi.product_id=p.product_id) AS stock_quantity";
 
+    // When branch_id is provided, only show product if it exists in that branch (even if stock is 0)
+    $branchJoin = '';
+    $branchWhere = '';
+    if ($branchId > 0) {
+      $branchJoin = "INNER JOIN product_inventory pi ON p.product_id = pi.product_id AND pi.branch_id = ?";
+      // No stock_qty > 0 filter - show products even if out of stock
+    }
+
     $sql = "
       SELECT
         p.product_id,
@@ -46,10 +60,12 @@ try {
         c.category_name,
         p.created_at
       FROM products p
+      $branchJoin
       LEFT JOIN categories c ON c.category_id=p.category_id
-      WHERE p.product_id=?
+      WHERE p.product_id=? $branchWhere
       LIMIT 1";
-    $params = ($branchId > 0) ? [$currency, $branchId, $id] : [$currency, $id];
+    // Parameters: currency, then branch_id (if branch filtering), then branch_id again for stock calculation, then product id
+    $params = ($branchId > 0) ? [$currency, $branchId, $branchId, $id] : [$currency, $id];
 
     $st = $pdo->prepare($sql);
     $st->execute($params);
@@ -73,12 +89,12 @@ try {
     : "(SELECT COALESCE(SUM(pi.stock_qty),0) FROM product_inventory pi
          WHERE pi.product_id=p.product_id)";
 
-  // When branch_id is provided, only show products with inventory in that branch
+  // When branch_id is provided, only show products with inventory in that branch (even if stock is 0)
   $branchJoin = '';
   $branchWhere = '';
   if ($branchId > 0) {
     $branchJoin = "INNER JOIN product_inventory pi ON p.product_id = pi.product_id AND pi.branch_id = ?";
-    $branchWhere = "AND pi.stock_qty > 0";
+    // No stock_qty > 0 filter - show products even if out of stock
   }
 
   $sql = "
@@ -109,10 +125,15 @@ try {
   $st->execute($params);
   $rows = $st->fetchAll(PDO::FETCH_ASSOC);
 
+  error_log("Products/Index: Success - Found " . count($rows) . " products");
   sendResponse(['products'=>$rows], 'OK');
 
 } catch (PDOException $e) {
+  error_log("Products/Index: PDO ERROR - " . $e->getMessage());
+  error_log("Products/Index: Stack trace: " . $e->getTraceAsString());
   sendError('Failed to retrieve product: '.$e->getMessage(), 500);
 } catch (Throwable $e) {
+  error_log("Products/Index: ERROR - " . $e->getMessage());
+  error_log("Products/Index: Stack trace: " . $e->getTraceAsString());
   sendError('Server error: '.$e->getMessage(), 500);
 }

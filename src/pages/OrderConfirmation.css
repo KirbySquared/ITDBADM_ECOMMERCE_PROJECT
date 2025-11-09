@@ -1,0 +1,119 @@
+.order-confirmation {
+  min-height: 80vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  padding: 40px 0;
+}
+
+.success-icon {
+  font-size: 5rem;
+  color: #28a745;
+  animation: scaleIn 0.5s ease-out;
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.order-confirmation .card {
+  border: none;
+  border-radius: 12px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.order-confirmation .card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1) !important;
+}
+
+.order-confirmation .card-header {
+  border-radius: 12px 12px 0 0 !important;
+  border-bottom: 2px solid #dee2e6;
+  font-weight: 600;
+}
+
+.order-item-image {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #f8f9fa;
+  padding: 4px;
+}
+
+.order-item-image-placeholder {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f9fa;
+  border-radius: 8px;
+  color: #6c757d;
+  font-size: 1.5rem;
+}
+
+.order-confirmation .table {
+  margin-bottom: 0;
+}
+
+.order-confirmation .table thead th {
+  border-bottom: 2px solid #dee2e6;
+  font-weight: 600;
+  color: #495057;
+  background: #f8f9fa;
+}
+
+.order-confirmation .table tbody tr {
+  transition: background-color 0.2s ease;
+}
+
+.order-confirmation .table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.order-confirmation .table tfoot {
+  border-top: 2px solid #dee2e6;
+  background: #f8f9fa;
+}
+
+.order-confirmation .badge {
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .order-confirmation {
+    padding: 20px 0;
+  }
+
+  .success-icon {
+    font-size: 3rem;
+  }
+
+  .order-confirmation .display-4 {
+    font-size: 2rem;
+  }
+
+  .order-item-image,
+  .order-item-image-placeholder {
+    width: 50px;
+    height: 50px;
+  }
+
+  .order-confirmation .table {
+    font-size: 0.875rem;
+  }
+
+  .order-confirmation .btn-lg {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+}
+

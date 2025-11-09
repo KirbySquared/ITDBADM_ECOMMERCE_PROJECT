@@ -214,8 +214,13 @@ try {
                 sendError('Branch not found', 404);
             }
             
-            // Start transaction to ensure atomicity
-            $pdo->beginTransaction();
+            // Start ACID transaction with explicit MySQL statements
+            // This ensures proper ACID compliance:
+            // - ATOMICITY: All deletions succeed or all fail
+            // - CONSISTENCY: Foreign key constraints are maintained
+            // - ISOLATION: Changes are isolated until COMMIT
+            // - DURABILITY: Once COMMIT, changes are permanent
+            $pdo->exec("START TRANSACTION");
             
             try {
                 // Delete related records in order (respecting foreign key constraints)
@@ -228,13 +233,13 @@ try {
                 $stmt = $pdo->prepare("DELETE FROM branches WHERE branch_id = ?");
                 $stmt->execute([$branchIdParam]);
                 
-                // Commit transaction
-                $pdo->commit();
+                // Commit transaction - all deletions are now permanent
+                $pdo->exec("COMMIT");
                 
                 sendResponse(null, 'Branch deleted successfully');
             } catch (PDOException $e) {
-                // Rollback on error
-                $pdo->rollBack();
+                // Rollback on error - all changes are discarded
+                $pdo->exec("ROLLBACK");
                 throw $e; // Re-throw to be caught by outer catch block
             }
             break;

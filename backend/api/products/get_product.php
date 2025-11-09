@@ -1,4 +1,8 @@
 <?php
+error_log("=== PRODUCTS/GET_PRODUCT.PHP CALLED ===");
+error_log("Request URI: " . $_SERVER['REQUEST_URI']);
+error_log("GET params: " . json_encode($_GET));
+
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 header('Content-Type: application/json');
@@ -8,6 +12,8 @@ try {
   $id       = isset($_GET['id']) ? (int)$_GET['id'] : 0;
   $branchId = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : 0;
   $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+  
+  error_log("Get_Product: id = " . $id . ", branchId = " . $branchId . ", currency = " . $currency);
 
   if ($id <= 0) sendError('Invalid product ID', 400);
 
@@ -23,6 +29,14 @@ try {
     ? "(SELECT COALESCE(pi.stock_qty,0) FROM product_inventory pi WHERE pi.branch_id=? AND pi.product_id=p.product_id) AS stock_quantity"
     : "(SELECT COALESCE(SUM(pi.stock_qty),0) FROM product_inventory pi WHERE pi.product_id=p.product_id) AS stock_quantity";
 
+  // When branch_id is provided, only show product if it exists in that branch (even if stock is 0)
+  $branchJoin = '';
+  $branchWhere = '';
+  if ($branchId > 0) {
+    $branchJoin = "INNER JOIN product_inventory pi ON p.product_id = pi.product_id AND pi.branch_id = ?";
+    // No stock_qty > 0 filter - show products even if out of stock
+  }
+
   $sql = "
     SELECT p.product_id, p.product_name, p.brand, p.model, p.description,
            p.$base AS price_php, ? AS currency, $rateSql AS display_price,
@@ -30,9 +44,11 @@ try {
            $stockSql,
            c.category_name, p.created_at
     FROM products p
+    $branchJoin
     LEFT JOIN categories c ON c.category_id=p.category_id
-    WHERE p.product_id=? LIMIT 1";
-  $params = ($branchId > 0) ? [$currency, $branchId, $id] : [$currency, $id];
+    WHERE p.product_id=? $branchWhere LIMIT 1";
+  // Parameters: currency, then branch_id (if branch filtering), then branch_id again for stock calculation, then product id
+  $params = ($branchId > 0) ? [$currency, $branchId, $branchId, $id] : [$currency, $id];
 
   $st = $pdo->prepare($sql);
   $st->execute($params);
@@ -43,7 +59,10 @@ try {
   $imgs->execute([$id]);
   $prod['images'] = $imgs->fetchAll(PDO::FETCH_ASSOC);
 
+  error_log("Get_Product: Success - Product ID " . $id . " found");
   sendResponse(['product'=>$prod], 'OK');
 } catch (Throwable $e) {
+  error_log("Get_Product: ERROR - " . $e->getMessage());
+  error_log("Get_Product: Stack trace: " . $e->getTraceAsString());
   sendError('Failed to retrieve product (get_product): '.$e->getMessage(), 500);
 }

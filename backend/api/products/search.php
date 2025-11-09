@@ -1,4 +1,9 @@
 <?php
+error_log("=== PRODUCTS/SEARCH.PHP CALLED ===");
+error_log("Request URI: " . $_SERVER['REQUEST_URI']);
+error_log("Request Method: " . $_SERVER['REQUEST_METHOD']);
+error_log("GET params: " . json_encode($_GET));
+
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 
@@ -6,9 +11,13 @@ header('Content-Type: application/json');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 try {
+  error_log("Products/Search: Starting processing");
+  
   // ---------------- Inputs ----------------
   $branchId  = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : 0;
   $currency  = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+  
+  error_log("Products/Search: branchId = " . $branchId . ", currency = " . $currency);
   $q         = isset($_GET['q']) ? trim($_GET['q']) : '';
   $platform  = isset($_GET['platform']) ? trim($_GET['platform']) : '';   // e.g. "PS5,PC"
   $genreId   = isset($_GET['genre_id']) ? (int)$_GET['genre_id'] : 0;     // or 0 for all
@@ -105,10 +114,9 @@ try {
   $branchJoin = '';
   $branchWhere = '';
   if ($branchId > 0) {
-    // When branch_id is provided, only show products that have inventory in that branch
+    // When branch_id is provided, only show products that have inventory in that branch (even if stock is 0)
     $branchJoin = "INNER JOIN product_inventory pi ON p.product_id = pi.product_id AND pi.branch_id = {$branchIdInt}";
-    // Only show products with stock > 0 in that branch
-    $branchWhere = "AND pi.stock_qty > 0";
+    // No stock_qty > 0 filter - show products even if out of stock
   }
 
   // ---------------- Count (for pagination) ----------------
@@ -121,9 +129,11 @@ try {
     $whereClause
     $branchWhere
   ";
+  error_log("Products/Search: Count SQL prepared with " . count($params) . " parameters");
   $countStmt = $pdo->prepare($countSql);
   $countStmt->execute($params);
   $total = (int)$countStmt->fetchColumn();
+  error_log("Products/Search: Count result = " . $total);
 
   // ---------------- Main query ----------------
   $sql = "
@@ -152,25 +162,29 @@ try {
     $whereClause
     $branchWhere
     ORDER BY $orderBy
-    LIMIT :limit OFFSET :offset
+    LIMIT ? OFFSET ?
   ";
 
-  // currency first, then WHERE params
-  $mainParams = array_merge([$currency], $params);
+  // currency first, then WHERE params, then limit and offset
+  $mainParams = array_merge([$currency], $params, [$limit, $offset]);
+
+  error_log("Products/Search: SQL prepared with " . count($mainParams) . " parameters");
+  error_log("Products/Search: Params: " . json_encode($mainParams));
 
   $stmt = $pdo->prepare($sql);
-  // bind currency + dynamic filter params
+  // bind all params (currency, filters, limit, offset)
   $i = 1;
   foreach ($mainParams as $val) {
-    $stmt->bindValue($i++, $val, is_int($val) ? PDO::PARAM_INT : PDO::PARAM_STR);
+    $paramType = is_int($val) ? PDO::PARAM_INT : PDO::PARAM_STR;
+    $stmt->bindValue($i++, $val, $paramType);
   }
-  // bind limit/offset as INT
-  $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
-  $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 
   $stmt->execute();
   $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+  error_log("Products/Search: Success - Found " . count($rows) . " products");
+  error_log("Products/Search: Total = " . $total . ", Page = " . $page . ", Pages = " . (int)ceil($total / $limit));
+  
   sendResponse([
     'products' => $rows,
     'pagination' => [
@@ -182,5 +196,7 @@ try {
   ], 'OK');
 
 } catch (Throwable $e) {
+  error_log("Products/Search: ERROR - " . $e->getMessage());
+  error_log("Products/Search: Stack trace: " . $e->getTraceAsString());
   sendError('Search failed: '.$e->getMessage(), 500);
 }

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { formatPrice } from '../utils/currency'
 import { useCurrency } from '../context/CurrencyContext'
+import { api } from '../api/config'
 import './Cart.css'
 
 interface CartItem {
@@ -10,21 +11,25 @@ interface CartItem {
   product_id: number
   quantity: number
   product_name: string
+  brand: string
+  model?: string
   price: number        // unit price in selected currency
+  display_price?: number
   currency: string     // e.g. "PHP", "USD"
-  image_url?: string
+  primary_image_url?: string
+  category_name?: string
+  stock_quantity?: number
+  line_total_display?: number
 }
 
 function Cart() {
+  const { currency } = useCurrency()
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<number | null>(null)
   const [locking, setLocking] = useState(false)
   const navigate = useNavigate()
-
-  // 👇 from your currency selector (same one used in Products.tsx)
-  const { currency } = useCurrency()
 
   useEffect(() => {
     fetchCart()
@@ -33,7 +38,7 @@ function Cart() {
     window.addEventListener('cartUpdated', handleCartUpdate)
     return () => window.removeEventListener('cartUpdated', handleCartUpdate)
     // refetch when currency changes
-  }, [currency]) // 👈 important
+  }, [currency]) //  important: refetch when currency changes
 
   const fetchCart = async () => {
     setLoading(true)
@@ -44,15 +49,13 @@ function Cart() {
         return
       }
 
-      const response = await fetch(
-        `http://localhost:8000/api/cart?currency=${encodeURIComponent(currency)}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+      const url = api(`/cart?currency=${encodeURIComponent(currency)}`)
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
-      )
+      })
 
       if (response.ok) {
         const data = await response.json().catch(() => ({} as any))
@@ -61,16 +64,22 @@ function Cart() {
           const apiCurrency = data.data?.currency || 'PHP'
           const rawItems = data.data?.items || []
 
-          // 👇 Map backend fields → what the UI expects
+          // Map backend fields → what the UI expects
           const mapped: CartItem[] = rawItems.map((it: any) => ({
             cart_id: Number(it.cart_id),
             product_id: Number(it.product_id),
             quantity: Number(it.quantity),
             product_name: it.product_name,
-            image_url: it.image_url,
-            // use converted price if present, else base PHP price
-            price: Number(it.unit_price_display ?? it.unit_price_php ?? 0),
+            brand: it.brand,
+            model: it.model,
+            primary_image_url: it.primary_image_url,
+            category_name: it.category_name,
+            stock_quantity: it.stock_quantity ? Number(it.stock_quantity) : undefined,
+            // Use display_price (converted) if available, else fall back to base price
+            price: Number(it.display_price ?? it.price ?? 0),
+            display_price: it.display_price ? Number(it.display_price) : undefined,
             currency: apiCurrency,
+            line_total_display: it.line_total_display ? Number(it.line_total_display) : undefined,
           }))
 
           setCartItems(mapped)
@@ -259,12 +268,16 @@ function Cart() {
                 {cartItems.map(item => (
                   <div key={item.cart_id} className="row align-items-center py-3 border-bottom">
                     <div className="col-md-2">
-                      {item.image_url ? (
+                      {item.primary_image_url ? (
                         <img
-                          src={item.image_url}
+                          src={item.primary_image_url}
                           alt={item.product_name}
                           className="rounded"
-                          style={{ width: '80px', height: '80px', objectFit: 'cover' }}
+                          style={{width: '80px', height: '80px', objectFit: 'cover'}}
+                          onError={(e) => {
+                            const t = e.target as HTMLImageElement
+                            t.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4='
+                          }}
                         />
                       ) : (
                         <div className="bg-light rounded" style={{ height: '80px', width: '80px' }}>
@@ -276,10 +289,27 @@ function Cart() {
                     </div>
 
                     <div className="col-md-4">
-                      <h5 className="mb-1">{item.product_name}</h5>
+                      <h5 className="mb-1">
+                        <Link to={`/products/${item.product_id}`} className="text-decoration-none text-dark">
+                          {item.product_name}
+                        </Link>
+                      </h5>
+                      {item.brand && (
+                        <p className="text-muted mb-1 small">
+                          {item.brand} {item.model ? `- ${item.model}` : ''}
+                        </p>
+                      )}
+                      {item.category_name && (
+                        <span className="badge bg-info text-dark mb-2">{item.category_name}</span>
+                      )}
                       <p className="text-primary fw-bold mb-0">
-                        {formatPrice(item.price, item.currency)} <small className="text-muted">each</small>
+                        {formatPrice(item.display_price ?? item.price, item.currency)}
                       </p>
+                      {item.stock_quantity !== undefined && (
+                        <small className={`d-block ${item.stock_quantity > 0 ? 'text-success' : 'text-danger'}`}>
+                          {item.stock_quantity > 0 ? `In Stock (${item.stock_quantity} available)` : 'Out of Stock'}
+                        </small>
+                      )}
                     </div>
 
                     <div className="col-md-3">

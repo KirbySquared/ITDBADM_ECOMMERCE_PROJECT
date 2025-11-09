@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { formatPrice } from '../utils/currency'
+import { useCurrency } from '../context/CurrencyContext'
+import { api } from '../api/config'
 import { calculateModalPositionAbsolute } from '../utils/modalPosition'
 import './MiniCart.css'
 
@@ -9,9 +11,13 @@ interface CartItem {
   product_id: number
   quantity: number
   product_name: string
+  brand?: string
+  model?: string
   price: number
+  display_price?: number
   currency: string
-  image_url?: string
+  primary_image_url?: string
+  line_total_display?: number
 }
 
 interface MiniCartProps {
@@ -24,6 +30,7 @@ interface MiniCartProps {
 }
 
 function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, triggerElement }: MiniCartProps) {
+  const { currency } = useCurrency()
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
@@ -36,7 +43,8 @@ function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, trig
       const position = calculateModalPositionAbsolute(triggerElement || null)
       setModalPosition(position)
     }
-  }, [show, triggerElement])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [show, triggerElement, currency])
 
   const fetchCart = async () => {
     setLoading(true)
@@ -48,7 +56,8 @@ function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, trig
         return
       }
 
-      const response = await fetch('http://localhost:8000/api/cart', {
+      const url = api(`/cart?currency=${encodeURIComponent(currency)}`)
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -161,15 +170,29 @@ function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, trig
               {cartItems.map(item => (
                 <div key={item.cart_id} className="minicart-item">
                   <div className="minicart-item-image">
-                    {item.image_url ? (
-                      <img src={item.image_url} alt={item.product_name} />
+                    {item.primary_image_url ? (
+                      <img 
+                        src={item.primary_image_url} 
+                        alt={item.product_name}
+                        onError={(e) => {
+                          const t = e.target as HTMLImageElement
+                          t.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4='
+                        }}
+                      />
                     ) : (
                       <i className="bi bi-image text-muted"></i>
                     )}
                   </div>
                   <div className="minicart-item-info">
-                    <h6 className="mb-1">{item.product_name}</h6>
-                    <p className="text-primary fw-bold mb-2">{formatPrice(item.price, item.currency)}</p>
+                    <h6 className="mb-1">
+                      <Link to={`/products/${item.product_id}`} className="text-decoration-none text-dark">
+                        {item.product_name}
+                      </Link>
+                    </h6>
+                    {item.brand && (
+                      <small className="text-muted d-block">{item.brand} {item.model ? `- ${item.model}` : ''}</small>
+                    )}
+                    <p className="text-primary fw-bold mb-2">{formatPrice(item.display_price ?? item.price, item.currency)}</p>
                     <div className="d-flex align-items-center gap-2 mb-2">
                       <button
                         className="btn btn-sm btn-outline-secondary"
@@ -205,7 +228,7 @@ function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, trig
             <div className="minicart-total">
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <span className="fw-bold">Total</span>
-                <span className="fw-bold text-primary">{formatPrice(total, cartItems[0]?.currency || 'USD')}</span>
+                <span className="fw-bold text-primary">{formatPrice(total, cartItems[0]?.currency || currency)}</span>
               </div>
               <div className="d-grid gap-2">
                 <Link to="/cart" className="btn btn-primary" onClick={onHide}>

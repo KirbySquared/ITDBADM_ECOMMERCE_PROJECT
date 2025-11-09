@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'   // ✅ added useNavigate
 import { formatPrice } from '../utils/currency'
 import { useCurrency } from '../context/CurrencyContext'
-import { useBranch } from '../context/BranchContext'   // ✅ added
+import { useAuth } from '../hooks/useAuth'
 import { api } from '../api/config'
 import './Home.css'
 
@@ -20,7 +20,9 @@ interface Product {
 
 function Home() {
   const { currency } = useCurrency()
-  const { branchId } = useBranch()                     // ✅ added
+  const { user, loading: authLoading } = useAuth()
+  // Get user's branch_id from profile - check if it exists (including 0 as valid)
+  const userBranchId = user?.branch_id !== undefined && user?.branch_id !== null ? user.branch_id : null
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -29,17 +31,24 @@ function Home() {
   const [q, setQ] = useState('')
 
   useEffect(() => {
-    fetchFeaturedProducts()
+    // Wait for auth to finish loading before fetching products
+    if (!authLoading) {
+      fetchFeaturedProducts()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, branchId])                              // ✅ re-fetch when branch or currency changes
+  }, [currency, userBranchId, authLoading])                              // re-fetch when branch or currency changes
 
   const fetchFeaturedProducts = async () => {
     try {
       setLoading(true)
-      const url = branchId
-        ? api(`/products?limit=6&branch_id=${branchId}&currency=${encodeURIComponent(currency)}`)
+      // Debug logging
+      console.log('[Home] Fetching products:', { userBranchId, user: user?.branch_id, currency })
+      
+      const url = userBranchId !== null && userBranchId !== undefined
+        ? api(`/products?limit=6&branch_id=${userBranchId}&currency=${encodeURIComponent(currency)}`)
         : api(`/products?limit=6&currency=${encodeURIComponent(currency)}`)
 
+      console.log('[Home] Fetching from URL:', url)
       const res = await fetch(url, { credentials: 'include' })
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
@@ -150,8 +159,8 @@ function Home() {
               </div>
               <h2 className="display-4 fw-bold mb-3">Featured Products</h2>
               <p className="lead text-muted">
-                {branchId
-                  ? `Showing featured products for branch #${branchId}`
+                {userBranchId != null
+                  ? `Showing featured products for branch #${userBranchId}`
                   : 'Check out our latest and most popular items'}
               </p>
               <div

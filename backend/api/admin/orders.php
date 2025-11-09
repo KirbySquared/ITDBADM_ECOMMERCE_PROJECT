@@ -216,8 +216,13 @@ try {
                 sendError('Invalid order status', 400);
             }
             
-            // Start transaction
-            $pdo->beginTransaction();
+            // Start ACID transaction with explicit MySQL statements
+            // This ensures proper ACID compliance:
+            // - ATOMICITY: All operations succeed or all fail
+            // - CONSISTENCY: Database constraints and business rules are maintained
+            // - ISOLATION: Changes are isolated until COMMIT
+            // - DURABILITY: Once COMMIT, changes are permanent
+            $pdo->exec("START TRANSACTION");
             
             try {
                 // Insert order
@@ -268,7 +273,8 @@ try {
                     ]);
                 }
                 
-                $pdo->commit();
+                // Commit transaction - all changes are now permanent
+                $pdo->exec("COMMIT");
                 
                 // Get created order with user details
                 $stmt = $pdo->prepare("
@@ -283,7 +289,8 @@ try {
                 sendResponse($newOrder, 'Order created successfully', 201);
                 
             } catch (Exception $e) {
-                $pdo->rollback();
+                // Rollback on error - all changes are discarded
+                $pdo->exec("ROLLBACK");
                 sendError('Failed to create order: ' . $e->getMessage(), 500);
             }
             break;
@@ -296,8 +303,12 @@ try {
             
             $input = json_decode(file_get_contents('php://input'), true);
             
+            if ($input === null && json_last_error() !== JSON_ERROR_NONE) {
+                sendError('Invalid JSON in request body', 400);
+            }
+            
             // Check if order exists
-            $stmt = $pdo->prepare("SELECT order_id, status FROM orders WHERE order_id = ?");
+            $stmt = $pdo->prepare("SELECT order_id, status, user_id FROM orders WHERE order_id = ?");
             $stmt->execute([$orderIdParam]);
             $order = $stmt->fetch();
             
@@ -321,7 +332,8 @@ try {
             if (isset($input['items'])) {
                 if (!is_array($input['items']) || empty($input['items'])) {
                     // If no items, delete the order
-                    $pdo->beginTransaction();
+                    // Start ACID transaction with explicit MySQL statements
+                    $pdo->exec("START TRANSACTION");
                     try {
                         // Delete order items
                         $stmt = $pdo->prepare("DELETE FROM order_items WHERE order_id = ?");
@@ -331,10 +343,13 @@ try {
                         $stmt = $pdo->prepare("DELETE FROM orders WHERE order_id = ?");
                         $stmt->execute([$orderIdParam]);
                         
-                        $pdo->commit();
+                        // Commit transaction - all deletions are now permanent
+                        $pdo->exec("COMMIT");
                         sendResponse(null, 'Order deleted successfully (no items remaining)');
                     } catch (Exception $e) {
-                        $pdo->rollback();
+                        // Rollback on error - all changes are discarded
+                        $pdo->exec("ROLLBACK");
+                        error_log('Order deletion error: ' . $e->getMessage());
                         sendError('Failed to delete order: ' . $e->getMessage(), 500);
                     }
                     break;
@@ -343,22 +358,36 @@ try {
                 // Validate each item
                 foreach ($input['items'] as $item) {
                     if (!isset($item['product_id']) || !isset($item['quantity']) || !isset($item['unit_price'])) {
-                        sendError('Invalid item data', 400);
+                        sendError('Invalid item data. Each item must have product_id, quantity, and unit_price', 400);
                     }
                     
                     // Check if product exists
-                    $productStmt = $pdo->prepare("SELECT product_id, price, stock_quantity FROM products WHERE product_id = ?");
+                    $productStmt = $pdo->prepare("SELECT product_id, price FROM products WHERE product_id = ?");
                     $productStmt->execute([$item['product_id']]);
                     $product = $productStmt->fetch();
                     
                     if (!$product) {
                         sendError('Product not found: ' . $item['product_id'], 400);
                     }
+                    
+                    // Validate quantity and price
+                    if (!is_numeric($item['quantity']) || $item['quantity'] <= 0) {
+                        sendError('Invalid quantity for product: ' . $item['product_id'], 400);
+                    }
+                    
+                    if (!is_numeric($item['unit_price']) || $item['unit_price'] < 0) {
+                        sendError('Invalid unit price for product: ' . $item['product_id'], 400);
+                    }
                 }
             }
             
-            // Start transaction for order update
-            $pdo->beginTransaction();
+            // Start ACID transaction with explicit MySQL statements
+            // This ensures proper ACID compliance:
+            // - ATOMICITY: All operations succeed or all fail
+            // - CONSISTENCY: Database constraints and business rules are maintained
+            // - ISOLATION: Changes are isolated until COMMIT
+            // - DURABILITY: Once COMMIT, changes are permanent
+            $pdo->exec("START TRANSACTION");
             
             try {
                 // Update order basic info
@@ -377,7 +406,7 @@ try {
                 if (isset($input['items'])) {
                     $totalAmount = 0;
                     foreach ($input['items'] as $item) {
-                        $totalAmount += $item['unit_price'] * $item['quantity'];
+                        $totalAmount += (float)$item['unit_price'] * (int)$item['quantity'];
                     }
                     $updateFields[] = "total_amount = ?";
                     $params[] = $totalAmount;
@@ -392,17 +421,6 @@ try {
                 
                 // Handle order items update
                 if (isset($input['items'])) {
-                    // Get current order items to check stock changes
-                    $stmt = $pdo->prepare("SELECT product_id, quantity FROM order_items WHERE order_id = ?");
-                    $stmt->execute([$orderIdParam]);
-                    $currentItems = $stmt->fetchAll();
-                    
-                    // Restore stock for current items
-                    foreach ($currentItems as $currentItem) {
-                        $stmt = $pdo->prepare("UPDATE products SET stock_quantity = stock_quantity + ? WHERE product_id = ?");
-                        $stmt->execute([$currentItem['quantity'], $currentItem['product_id']]);
-                    }
-                    
                     // Delete current order items
                     $stmt = $pdo->prepare("DELETE FROM order_items WHERE order_id = ?");
                     $stmt->execute([$orderIdParam]);
@@ -414,58 +432,26 @@ try {
                     ");
                     
                     foreach ($input['items'] as $item) {
-                        $subtotal = $item['unit_price'] * $item['quantity'];
+                        $subtotal = (float)$item['unit_price'] * (int)$item['quantity'];
                         
                         $stmt->execute([
                             $orderIdParam,
-                            $item['product_id'],
-                            $item['quantity'],
-                            $item['unit_price'],
+                            (int)$item['product_id'],
+                            (int)$item['quantity'],
+                            (float)$item['unit_price'],
                             $subtotal
                         ]);
-                        
-                        // Subtract stock if order is processing or beyond
-                        if (isset($input['status']) && in_array($input['status'], ['processing', 'shipped', 'delivered'])) {
-                            $stmt = $pdo->prepare("UPDATE products SET stock_quantity = stock_quantity - ? WHERE product_id = ?");
-                            $stmt->execute([$item['quantity'], $item['product_id']]);
-                        }
-                    }
-                } else {
-                    // Handle status change for existing items
-                    if (isset($input['status'])) {
-                        $oldStatus = $order['status'];
-                        $newStatus = $input['status'];
-                        
-                        // If changing to processing from pending, subtract stock
-                        if ($oldStatus === 'pending' && $newStatus === 'processing') {
-                            $stmt = $pdo->prepare("
-                                SELECT product_id, quantity FROM order_items WHERE order_id = ?
-                            ");
-                            $stmt->execute([$orderIdParam]);
-                            $items = $stmt->fetchAll();
-                            
-                            foreach ($items as $item) {
-                                $stmt = $pdo->prepare("UPDATE products SET stock_quantity = stock_quantity - ? WHERE product_id = ?");
-                                $stmt->execute([$item['quantity'], $item['product_id']]);
-                            }
-                        }
-                        // If changing from processing back to pending, restore stock
-                        elseif ($oldStatus === 'processing' && $newStatus === 'pending') {
-                            $stmt = $pdo->prepare("
-                                SELECT product_id, quantity FROM order_items WHERE order_id = ?
-                            ");
-                            $stmt->execute([$orderIdParam]);
-                            $items = $stmt->fetchAll();
-                            
-                            foreach ($items as $item) {
-                                $stmt = $pdo->prepare("UPDATE products SET stock_quantity = stock_quantity + ? WHERE product_id = ?");
-                                $stmt->execute([$item['quantity'], $item['product_id']]);
-                            }
-                        }
                     }
                 }
                 
-                $pdo->commit();
+                // Note: Stock management is handled by the payment trigger when payment_status changes to 'completed'
+                // Admin order editing does not automatically manage stock since:
+                // 1. Stock is managed per branch in product_inventory table
+                // 2. Orders don't store branch_id directly
+                // 3. Stock should be managed through inventory management or payment completion
+                
+                // Commit transaction - all changes are now permanent
+                $pdo->exec("COMMIT");
                 
                 // Get updated order with user details
                 $stmt = $pdo->prepare("
@@ -477,10 +463,38 @@ try {
                 $stmt->execute([$orderIdParam]);
                 $updatedOrder = $stmt->fetch();
                 
+                if (!$updatedOrder) {
+                    throw new Exception('Failed to retrieve updated order');
+                }
+                
+                // Get order items
+                $stmt = $pdo->prepare("
+                    SELECT oi.*, p.product_name, p.brand, p.model
+                    FROM order_items oi
+                    LEFT JOIN products p ON oi.product_id = p.product_id
+                    WHERE oi.order_id = ?
+                    ORDER BY oi.order_item_id ASC
+                ");
+                $stmt->execute([$orderIdParam]);
+                $updatedOrder['items'] = $stmt->fetchAll();
+                
+                // Get payment details if exists
+                $stmt = $pdo->prepare("
+                    SELECT payment_id, payment_method, payment_status, amount, currency, transaction_id, payment_date
+                    FROM payments 
+                    WHERE order_id = ?
+                ");
+                $stmt->execute([$orderIdParam]);
+                $payment = $stmt->fetch();
+                $updatedOrder['payment'] = $payment;
+                
                 sendResponse($updatedOrder, 'Order updated successfully');
                 
             } catch (Exception $e) {
-                $pdo->rollback();
+                // Rollback on error - all changes are discarded
+                $pdo->exec("ROLLBACK");
+                error_log('Order update error: ' . $e->getMessage());
+                error_log('Stack trace: ' . $e->getTraceAsString());
                 sendError('Failed to update order: ' . $e->getMessage(), 500);
             }
             break;
