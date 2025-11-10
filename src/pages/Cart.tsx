@@ -34,7 +34,10 @@ function Cart() {
   useEffect(() => {
     fetchCart()
 
-    const handleCartUpdate = () => fetchCart()
+    const handleCartUpdate = () => {
+      console.log('Cart update event received, refreshing cart...')
+      fetchCart()
+    }
     window.addEventListener('cartUpdated', handleCartUpdate)
     return () => window.removeEventListener('cartUpdated', handleCartUpdate)
     // refetch when currency changes
@@ -51,6 +54,7 @@ function Cart() {
 
       const url = api(`/cart?currency=${encodeURIComponent(currency)}`)
       const response = await fetch(url, {
+        credentials: 'include',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -63,6 +67,12 @@ function Cart() {
         if (data?.success) {
           const apiCurrency = data.data?.currency || 'PHP'
           const rawItems = data.data?.items || []
+          
+          console.log('Cart fetched successfully:', {
+            itemCount: rawItems.length,
+            currency: apiCurrency,
+            total: data.data?.total
+          })
 
           // Map backend fields → what the UI expects
           const mapped: CartItem[] = rawItems.map((it: any) => ({
@@ -90,10 +100,22 @@ function Cart() {
           setTotal(0)
         }
       } else if (response.status === 401) {
+        localStorage.removeItem('token')
         navigate('/login')
       } else {
         const text = await response.text()
-        console.error('Cart fetch failed:', response.status, text)
+        let errorData: any = {}
+        try {
+          errorData = text ? JSON.parse(text) : {}
+        } catch {
+          // ignore parse error
+        }
+        console.error('Cart fetch failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          message: errorData?.message || text,
+          body: text
+        })
         setCartItems([])
         setTotal(0)
       }

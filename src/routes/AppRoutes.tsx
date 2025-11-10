@@ -26,6 +26,7 @@ import { Routes, Route } from 'react-router-dom'
 import Home from '../pages/Home'
 import Products from '../pages/Products'
 import ProductDetail from '../pages/ProductDetail'
+import PcBuilder from '../pages/PcBuilder'
 import Cart from '../pages/Cart'
 import Checkout from '../pages/Checkout'
 import OrderConfirmation from '../pages/OrderConfirmation'
@@ -49,6 +50,7 @@ function AppRoutes() {
       <Route path="/" element={<Home />} />
       <Route path="/products" element={<Products />} />
       <Route path="/products/:id" element={<ProductDetail />} />
+      <Route path="/pc-builder" element={<PcBuilder />} />
       <Route path="/cart" element={<Cart />} />
       <Route path="/checkout" element={<Checkout />} />
       <Route path="/orders/:id" element={<OrderConfirmation />} />

@@ -198,6 +198,12 @@ function Header() {
                 Products
               </Link>
             </li>
+            <li className="nav-item">
+              <Link to="/pc-builder" className="nav-link text-white fw-semibold">
+                <i className="bi bi-cpu me-1"></i>
+                PC Builder
+              </Link>
+            </li>
           </ul>
 
           <div className="d-flex align-items-center gap-2">

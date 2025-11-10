@@ -8,6 +8,13 @@ require_once __DIR__ . '/../../utils/response.php';
 header('Content-Type: application/json');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
+// Check if this is a PC builder request
+if (isset($_GET['pc_builder']) && $_GET['pc_builder'] == '1') {
+    error_log("Products: Routing to pc_builder_components.php");
+    include __DIR__ . '/pc_builder_components.php';
+    exit;
+}
+
 try {
   $branchId = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : 0;
   $limit    = isset($_GET['limit']) ? (int)$_GET['limit'] : 0;
