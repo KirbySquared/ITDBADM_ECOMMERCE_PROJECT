@@ -88,6 +88,8 @@ function Checkout() {
     paymentMethod: 'credit_card',    // 'credit_card' | 'debit_card' | 'gcash' | 'maya' | 'bank_transfer' | 'cod'
     notes: ''
   })
+  
+  const branchLocked = !!user?.branch_id
 
   // Update form data when user data is available
   useEffect(() => {
@@ -392,10 +394,11 @@ function Checkout() {
                       <select
                         id="branchId"
                         name="branchId"
-                        className="form-select"
+                        className="form-control"
                         value={formData.branchId}
                         onChange={handleChange}
                         required
+                        disabled={branchLocked || submitting}
                       >
                         <option value="">Choose a branch...</option>
                         {branches.map(b => (
