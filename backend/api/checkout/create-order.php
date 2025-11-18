@@ -162,12 +162,12 @@ try {
             sendError('Stock validation failed: ' . implode('; ', $stockErrors), 400);
         }
         
-        // 2. Create order
+        // 2. Create order (include branch_id)
         $stmt = $pdo->prepare("
-            INSERT INTO orders (user_id, total_amount, currency, status, shipping_address)
-            VALUES (?, ?, ?, 'pending', ?)
+            INSERT INTO orders (user_id, total_amount, currency, status, shipping_address, branch_id)
+            VALUES (?, ?, ?, 'pending', ?, ?)
         ");
-        $stmt->execute([$userId, $totalAmount, $currency, $shippingAddress]);
+        $stmt->execute([$userId, $totalAmount, $currency, $shippingAddress, $branchId]);
         $orderId = $pdo->lastInsertId();
         
         // 3. Create order items

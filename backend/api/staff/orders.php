@@ -1,0 +1,249 @@
+<?php
+/**
+ * STAFF ORDERS API ENDPOINT
+ * 
+ * This endpoint handles order management operations for staff.
+ * All operations are automatically filtered by staff's branch_id.
+ * 
+ * ROUTES:
+ * - GET /api/staff/orders - List orders filtered by staff's branch_id
+ * - GET /api/staff/orders/{id} - Get specific order details (only if order belongs to staff's branch)
+ * - PUT /api/staff/orders/{id} - Update order status (restricted: cannot cancel, can only progress status)
+ * 
+ * AUTHENTICATION:
+ * - Requires valid JWT token
+ * - Validates staff role and branch_id
+ * - Returns 403 if not staff or order doesn't belong to staff's branch
+ */
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/staff_auth.php';
+
+// Authenticate staff and get branch_id
+$auth = requireStaffAuth();
+$staffUserId = $auth['user_id'];
+$branchId = $auth['branch_id'];
+
+// Get request method and path
+$method = $_SERVER['REQUEST_METHOD'];
+$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$pathParts = explode('/', trim($path, '/'));
+
+// Extract order ID if present
+$orderIdParam = null;
+if (count($pathParts) >= 4 && is_numeric($pathParts[3])) {
+    $orderIdParam = intval($pathParts[3]);
+}
+
+try {
+    switch ($method) {
+        case 'GET':
+            if ($orderIdParam) {
+                // Get specific order with items and user details (only if belongs to staff's branch)
+                $stmt = $pdo->prepare("
+                    SELECT o.*, u.first_name, u.last_name, u.email, u.phone
+                    FROM orders o 
+                    LEFT JOIN users u ON o.user_id = u.user_id 
+                    WHERE o.order_id = ? AND o.branch_id = ?
+                ");
+                $stmt->execute([$orderIdParam, $branchId]);
+                $order = $stmt->fetch();
+                
+                if (!$order) {
+                    sendError('Order not found or access denied', 404);
+                }
+                
+                // Get order items with product details
+                $stmt = $pdo->prepare("
+                    SELECT oi.*, p.product_name, p.brand, p.model,
+                           (SELECT image_url FROM product_images WHERE product_id = p.product_id AND is_primary = TRUE LIMIT 1) as product_image
+                    FROM order_items oi 
+                    LEFT JOIN products p ON oi.product_id = p.product_id 
+                    WHERE oi.order_id = ?
+                    ORDER BY oi.order_item_id ASC
+                ");
+                $stmt->execute([$orderIdParam]);
+                $order['items'] = $stmt->fetchAll();
+                
+                // Get payment details if exists
+                $stmt = $pdo->prepare("
+                    SELECT payment_method, payment_status, amount, currency, transaction_id, payment_date
+                    FROM payments 
+                    WHERE order_id = ?
+                ");
+                $stmt->execute([$orderIdParam]);
+                $payment = $stmt->fetch();
+                $order['payment'] = $payment;
+                
+                sendResponse($order, 'Order retrieved successfully');
+            } else {
+                // List orders with pagination and filters (filtered by branch_id)
+                $page = max(1, intval($_GET['page'] ?? 1));
+                $limit = min(100, max(1, intval($_GET['limit'] ?? 10)));
+                $offset = ($page - 1) * $limit;
+                
+                $search = $_GET['search'] ?? '';
+                $status = $_GET['status'] ?? 'all';
+                $dateFrom = $_GET['date_from'] ?? '';
+                $dateTo = $_GET['date_to'] ?? '';
+                
+                // Build query (always filter by branch_id)
+                $whereConditions = ["o.branch_id = ?"];
+                $params = [$branchId];
+                
+                if ($search) {
+                    $whereConditions[] = "(u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ? OR o.order_id LIKE ?)";
+                    $searchTerm = "%$search%";
+                    $params = array_merge($params, [$searchTerm, $searchTerm, $searchTerm, $searchTerm]);
+                }
+                
+                if ($status !== 'all') {
+                    $whereConditions[] = "o.status = ?";
+                    $params[] = $status;
+                }
+                
+                if ($dateFrom) {
+                    $whereConditions[] = "DATE(o.order_date) >= ?";
+                    $params[] = $dateFrom;
+                }
+                
+                if ($dateTo) {
+                    $whereConditions[] = "DATE(o.order_date) <= ?";
+                    $params[] = $dateTo;
+                }
+                
+                $whereClause = 'WHERE ' . implode(' AND ', $whereConditions);
+                
+                // Get orders with user details
+                $sql = "SELECT o.*, u.first_name, u.last_name, u.email,
+                               COALESCE(SUM(oi.quantity), 0) as items_count
+                        FROM orders o 
+                        LEFT JOIN users u ON o.user_id = u.user_id 
+                        LEFT JOIN order_items oi ON o.order_id = oi.order_id
+                        $whereClause
+                        GROUP BY o.order_id
+                        ORDER BY o.order_date DESC 
+                        LIMIT ? OFFSET ?";
+                
+                $params[] = $limit;
+                $params[] = $offset;
+                
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute($params);
+                $orders = $stmt->fetchAll();
+                
+                // Get total count
+                $countSql = "SELECT COUNT(DISTINCT o.order_id) 
+                            FROM orders o 
+                            LEFT JOIN users u ON o.user_id = u.user_id 
+                            $whereClause";
+                $countStmt = $pdo->prepare($countSql);
+                $countStmt->execute(array_slice($params, 0, -2)); // Remove limit and offset
+                $total = $countStmt->fetchColumn();
+                
+                sendResponse([
+                    'orders' => $orders,
+                    'pagination' => [
+                        'page' => $page,
+                        'limit' => $limit,
+                        'total' => $total,
+                        'pages' => ceil($total / $limit)
+                    ]
+                ], 'Orders retrieved successfully');
+            }
+            break;
+            
+        case 'PUT':
+            // Update order status (restricted: cannot cancel, can only progress status)
+            if (!$orderIdParam) {
+                sendError('Order ID required', 400);
+            }
+            
+            $input = json_decode(file_get_contents('php://input'), true);
+            
+            if ($input === null && json_last_error() !== JSON_ERROR_NONE) {
+                sendError('Invalid JSON in request body', 400);
+            }
+            
+            // Check if order exists and belongs to staff's branch
+            $stmt = $pdo->prepare("SELECT order_id, status, branch_id FROM orders WHERE order_id = ?");
+            $stmt->execute([$orderIdParam]);
+            $order = $stmt->fetch();
+            
+            if (!$order) {
+                sendError('Order not found', 404);
+            }
+            
+            // Verify order belongs to staff's branch
+            if ($order['branch_id'] != $branchId) {
+                sendError('Access denied. Order does not belong to your branch.', 403);
+            }
+            
+            // Validate status - staff can only progress status, not cancel
+            $allowedStatuses = ['pending', 'processing', 'shipped', 'delivered'];
+            if (isset($input['status'])) {
+                if (!in_array($input['status'], $allowedStatuses)) {
+                    sendError('Invalid order status. Staff can only update status to: pending, processing, shipped, or delivered.', 400);
+                }
+                
+                // Prevent status regression (can only move forward)
+                $statusOrder = ['pending' => 1, 'processing' => 2, 'shipped' => 3, 'delivered' => 4];
+                $currentStatusOrder = $statusOrder[$order['status']] ?? 0;
+                $newStatusOrder = $statusOrder[$input['status']] ?? 0;
+                
+                if ($newStatusOrder < $currentStatusOrder) {
+                    sendError('Cannot revert order status. You can only progress the order status forward.', 400);
+                }
+            }
+            
+            // Only allow status updates (no other fields)
+            if (isset($input['status'])) {
+                $stmt = $pdo->prepare("UPDATE orders SET status = ? WHERE order_id = ? AND branch_id = ?");
+                $stmt->execute([$input['status'], $orderIdParam, $branchId]);
+                
+                // Get updated order
+                $stmt = $pdo->prepare("
+                    SELECT o.*, u.first_name, u.last_name, u.email, u.phone
+                    FROM orders o 
+                    LEFT JOIN users u ON o.user_id = u.user_id 
+                    WHERE o.order_id = ?
+                ");
+                $stmt->execute([$orderIdParam]);
+                $updatedOrder = $stmt->fetch();
+                
+                // Get order items
+                $stmt = $pdo->prepare("
+                    SELECT oi.*, p.product_name, p.brand, p.model
+                    FROM order_items oi
+                    LEFT JOIN products p ON oi.product_id = p.product_id
+                    WHERE oi.order_id = ?
+                    ORDER BY oi.order_item_id ASC
+                ");
+                $stmt->execute([$orderIdParam]);
+                $updatedOrder['items'] = $stmt->fetchAll();
+                
+                // Get payment details if exists
+                $stmt = $pdo->prepare("
+                    SELECT payment_id, payment_method, payment_status, amount, currency, transaction_id, payment_date
+                    FROM payments 
+                    WHERE order_id = ?
+                ");
+                $stmt->execute([$orderIdParam]);
+                $payment = $stmt->fetch();
+                $updatedOrder['payment'] = $payment;
+                
+                sendResponse($updatedOrder, 'Order status updated successfully');
+            } else {
+                sendError('No valid fields to update', 400);
+            }
+            break;
+            
+        default:
+            sendError('Method not allowed', 405);
+            break;
+    }
+} catch (PDOException $e) {
+    sendError('Database error: ' . $e->getMessage(), 500);
+}
+?>
+

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { formatPrice } from '../utils/currency'
 import { useCurrency } from '../context/CurrencyContext'
@@ -79,6 +79,8 @@ function Products() {
   const [genreId, setGenreId] = useState<number | null>(null)
   const [year, setYear] = useState<number | ''>('')
   const [month, setMonth] = useState<number | ''>('')
+  // Separate state for slider UI (updates immediately) and filter (debounced)
+  const [priceSlider, setPriceSlider] = useState<[number, number]>([0, 0])
   const [price, setPrice] = useState<[number, number]>([0, 0])
   const [inStock, setInStock] = useState(false)
   const [sort, setSort] = useState<'newest' | 'price_asc' | 'price_desc'>('newest')
@@ -89,19 +91,56 @@ function Products() {
   const [addingId, setAddingId] = useState<number | null>(null)
   const [addedIds, setAddedIds] = useState<Record<number, boolean>>({})
 
-  // ------- NEW: slider handlers -------
+  // Debounce timer ref for price slider
+  const priceDebounceTimer = useRef<NodeJS.Timeout | null>(null)
+
+  // ------- NEW: slider handlers with debouncing -------
   const handleMinPriceChange = (val: number) => {
-    const safeVal = Math.max(0, Math.min(val, price[1] || MAX_PRICE))
-    setPage(1)
-    setPrice([safeVal, price[1]])
+    const safeVal = Math.max(0, Math.min(val, priceSlider[1] || MAX_PRICE))
+    setPriceSlider([safeVal, priceSlider[1]])
+    
+    // Clear existing timer
+    if (priceDebounceTimer.current) {
+      clearTimeout(priceDebounceTimer.current)
+    }
+    
+    // Set new timer to update actual filter after 500ms of no changes
+    priceDebounceTimer.current = setTimeout(() => {
+      setPage(1)
+      setPrice([safeVal, priceSlider[1]])
+    }, 500)
   }
 
   const handleMaxPriceChange = (val: number) => {
-    const safeVal = Math.min(MAX_PRICE, Math.max(val, price[0]))
-    setPage(1)
-    setPrice([price[0], safeVal])
+    const safeVal = Math.min(MAX_PRICE, Math.max(val, priceSlider[0]))
+    setPriceSlider([priceSlider[0], safeVal])
+    
+    // Clear existing timer
+    if (priceDebounceTimer.current) {
+      clearTimeout(priceDebounceTimer.current)
+    }
+    
+    // Set new timer to update actual filter after 500ms of no changes
+    priceDebounceTimer.current = setTimeout(() => {
+      setPage(1)
+      setPrice([priceSlider[0], safeVal])
+    }, 500)
   }
   // ------- END slider handlers -------
+
+  // Sync slider UI with filter state when price changes from other sources
+  useEffect(() => {
+    setPriceSlider(price)
+  }, [price[0], price[1]])
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (priceDebounceTimer.current) {
+        clearTimeout(priceDebounceTimer.current)
+      }
+    }
+  }, [])
 
   function buildQS() {
     const sp = new URLSearchParams()
@@ -421,7 +460,7 @@ function Products() {
                   min={0}
                   max={MAX_PRICE}
                   step={500}
-                  value={price[0]}
+                  value={priceSlider[0]}
                   onChange={e => handleMinPriceChange(Number(e.target.value))}
                 />
                 <input
@@ -430,18 +469,18 @@ function Products() {
                   min={0}
                   max={MAX_PRICE}
                   step={500}
-                  value={price[1]}
+                  value={priceSlider[1]}
                   onChange={e => handleMaxPriceChange(Number(e.target.value))}
                 />
               </div>
               <div className="d-flex justify-content-between small text-muted mt-1">
                 <span>
                   Min:{' '}
-                  {price[0] > 0 ? formatPrice(price[0], currency) : 'Any'}
+                  {priceSlider[0] > 0 ? formatPrice(priceSlider[0], currency) : 'Any'}
                 </span>
                 <span>
                   Max:{' '}
-                  {price[1] > 0 ? formatPrice(price[1], currency) : 'Any'}
+                  {priceSlider[1] > 0 ? formatPrice(priceSlider[1], currency) : 'Any'}
                 </span>
               </div>
             </div>

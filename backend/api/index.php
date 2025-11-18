@@ -212,6 +212,17 @@ switch ($path) {
         include 'admin/index.php';
         break;
         
+    case 'staff':
+    case 'staff/login':
+    case 'staff/check_auth':
+    case 'staff/dashboard':
+    case 'staff/orders':
+    case 'staff/inventory':
+        // Route staff requests to staff router
+        error_log("Routing to staff API for path: " . $path);
+        include 'staff/index.php';
+        break;
+        
     default:
         // Check if it's an orders route with ID (e.g., orders/4)
         if (preg_match('/^orders\/\d+$/', $path) && $method === 'GET') {
@@ -224,6 +235,14 @@ switch ($path) {
             preg_match('/^admin\/products\/\d+\/(images|inventory)/', $path)) {
             error_log("Routing to admin API for path: " . $path);
             include 'admin/index.php';
+            break;
+        }
+        
+        // Check if it's a staff route with ID (e.g., staff/orders/123, staff/inventory/123/add-stock, staff/inventory/123/damage)
+        if (preg_match('/^staff\/(orders|inventory)\/\d+$/', $path) || 
+            preg_match('/^staff\/inventory\/\d+\/(add-stock|damage)$/', $path)) {
+            error_log("Routing to staff API for path: " . $path);
+            include 'staff/index.php';
             break;
         }
         

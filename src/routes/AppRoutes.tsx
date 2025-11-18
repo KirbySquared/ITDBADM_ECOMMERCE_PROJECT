@@ -42,6 +42,11 @@ import AdminCategories from '../pages/AdminCategories'
 import AdminBranches from '../pages/AdminBranches'
 import AdminRoute from '../components/AdminRoute'
 import { AdminNotificationProvider } from '../context/AdminNotificationContext'
+import StaffLogin from '../pages/StaffLogin'
+import StaffDashboard from '../pages/StaffDashboard'
+import StaffOrders from '../pages/StaffOrders'
+import StaffInventory from '../pages/StaffInventory'
+import StaffRoute from '../components/StaffRoute'
 
 function AppRoutes() {
   return (
@@ -107,6 +112,26 @@ function AppRoutes() {
             <AdminBranches />
           </AdminNotificationProvider>
         </AdminRoute>
+      } />
+      
+      {/* Staff Routes */}
+      <Route path="/staff/login" element={<StaffLogin />} />
+      <Route path="/staff" element={
+        <StaffRoute>
+          <StaffDashboard />
+        </StaffRoute>
+      } />
+      
+      <Route path="/staff/orders" element={
+        <StaffRoute>
+          <StaffOrders />
+        </StaffRoute>
+      } />
+      
+      <Route path="/staff/inventory" element={
+        <StaffRoute>
+          <StaffInventory />
+        </StaffRoute>
       } />
     </Routes>
   )

@@ -24,17 +24,34 @@ function Header() {
 
   // Check if we're on an admin page
   const isAdminPage = location.pathname.startsWith('/admin')
+  // Check if we're on a staff page
+  const isStaffPage = location.pathname.startsWith('/staff')
   // Check if user is admin
   const isAdmin = user?.role === 'admin' || (isAuthenticated && isAdminPage)
+  // Check if user is staff
+  const isStaff = user?.role === 'staff' || (isAuthenticated && isStaffPage)
 
   // Handle logout with redirection
   const handleLogout = async () => {
     try {
       await logout()
-      navigate('/')
+      // Redirect based on current page
+      if (isStaffPage) {
+        navigate('/staff/login')
+      } else if (isAdminPage) {
+        navigate('/admin/login')
+      } else {
+        navigate('/')
+      }
     } catch (error) {
       console.error('Logout error:', error)
-      navigate('/')
+      if (isStaffPage) {
+        navigate('/staff/login')
+      } else if (isAdminPage) {
+        navigate('/admin/login')
+      } else {
+        navigate('/')
+      }
     }
   }
 
@@ -146,6 +163,64 @@ function Header() {
                   <option value="KRW">KRW ₩</option>
                 </select>
               </div>
+              <button
+                className="btn btn-outline-light d-flex align-items-center"
+                onClick={handleLogout}
+              >
+                <i className="bi bi-box-arrow-right me-1"></i>
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+    )
+  }
+
+  // -------------------- STAFF HEADER --------------------
+  if (isStaff && isAuthenticated && isStaffPage) {
+    return (
+      <header className="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top">
+        <div className="container-fluid">
+          <Link to="/staff" className="navbar-brand d-flex align-items-center">
+            <i className="bi bi-person-badge me-2"></i>
+            Staff Panel
+            {user?.branch_name && (
+              <span className="ms-2 text-white-50 small">
+                <i className="bi bi-shop me-1"></i>
+                {user.branch_name}
+              </span>
+            )}
+          </Link>
+
+          <button
+            className="navbar-toggler"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#staffNavbarNav"
+            aria-controls="staffNavbarNav"
+            aria-expanded="false"
+            aria-label="Toggle navigation"
+          >
+            <span className="navbar-toggler-icon"></span>
+          </button>
+
+          <div className="collapse navbar-collapse" id="staffNavbarNav">
+            <div className="navbar-nav ms-auto align-items-lg-center gap-2">
+              <Link to="/staff" className="nav-link d-flex align-items-center">
+                <i className="bi bi-house-door me-1"></i>
+                Dashboard Home
+              </Link>
+              <Link to="/" className="nav-link d-flex align-items-center me-2">
+                <i className="bi bi-globe me-1"></i>
+                View Store
+              </Link>
+              {user && (
+                <div className="d-flex align-items-center me-2 text-white-50">
+                  <i className="bi bi-person-circle me-1"></i>
+                  <span className="d-none d-lg-inline">{user.first_name} {user.last_name}</span>
+                </div>
+              )}
               <button
                 className="btn btn-outline-light d-flex align-items-center"
                 onClick={handleLogout}
