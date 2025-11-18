@@ -87,8 +87,14 @@ function generateToken($userId) {
 
 function validateToken($token) {
     try {
+        if (empty($token)) {
+            error_log("validateToken: Empty token provided");
+            return false;
+        }
+        
         $parts = explode('.', $token);
         if (count($parts) !== 3) {
+            error_log("validateToken: Invalid token format - expected 3 parts, got " . count($parts));
             return false;
         }
         
@@ -99,6 +105,7 @@ function validateToken($token) {
         $expectedSignature = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($signature));
         
         if (!hash_equals($expectedSignature, $base64Signature)) {
+            error_log("validateToken: Signature mismatch");
             return false;
         }
         
@@ -106,15 +113,19 @@ function validateToken($token) {
         $payload = json_decode(base64_decode(str_replace(['-', '_'], ['+', '/'], $base64Payload)), true);
         
         if (!$payload || !isset($payload['user_id']) || !isset($payload['exp'])) {
+            error_log("validateToken: Invalid payload or missing fields - payload: " . json_encode($payload));
             return false;
         }
         
         if ($payload['exp'] < time()) {
+            error_log("validateToken: Token expired - exp: " . $payload['exp'] . ", now: " . time());
             return false;
         }
         
+        error_log("validateToken: Success - user_id: " . $payload['user_id']);
         return $payload['user_id'];
     } catch (Exception $e) {
+        error_log("validateToken: Exception - " . $e->getMessage());
         return false;
     }
 }

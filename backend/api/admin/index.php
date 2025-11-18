@@ -60,12 +60,16 @@ if ($path === 'login' && $method === 'POST') {
     include 'users.php';
 } elseif ($path === 'categories' && ($method === 'GET' || $method === 'POST')) {
     include 'categories.php';
+} elseif ($path === 'genres' && ($method === 'GET' || $method === 'POST')) {
+    include 'genres.php';
 } elseif ($path === 'branches' && ($method === 'GET' || $method === 'POST')) {
     include 'branches.php';
 } elseif (preg_match('/^users\/\d+$/', $path) && ($method === 'GET' || $method === 'PUT' || $method === 'DELETE')) {
     include 'users.php';
 } elseif (preg_match('/^categories\/\d+$/', $path) && ($method === 'GET' || $method === 'PUT' || $method === 'DELETE')) {
     include 'categories.php';
+} elseif (preg_match('/^genres\/\d+$/', $path) && ($method === 'GET' || $method === 'PUT' || $method === 'DELETE')) {
+    include 'genres.php';
 } elseif (preg_match('/^branches\/\d+$/', $path) && ($method === 'GET' || $method === 'PUT' || $method === 'DELETE')) {
     include 'branches.php';
 } elseif ($path === 'products' && ($method === 'GET' || $method === 'POST')) {

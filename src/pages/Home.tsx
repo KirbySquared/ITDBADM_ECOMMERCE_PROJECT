@@ -44,12 +44,38 @@ function Home() {
       // Debug logging
       console.log('[Home] Fetching products:', { userBranchId, user: user?.branch_id, currency })
       
-      const url = userBranchId !== null && userBranchId !== undefined
-        ? api(`/products?limit=6&branch_id=${userBranchId}&currency=${encodeURIComponent(currency)}`)
-        : api(`/products?limit=6&currency=${encodeURIComponent(currency)}`)
+      // Ensure token is valid before making request
+      const { ensureValidToken } = await import('../utils/tokenRefresh')
+      const tokenValid = await ensureValidToken()
+      if (!tokenValid) {
+        return // ensureValidToken already handles redirect
+      }
+      
+      const url = api(`/products?limit=6&currency=${encodeURIComponent(currency)}`)
+      const token = localStorage.getItem('token')
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
 
       console.log('[Home] Fetching from URL:', url)
-      const res = await fetch(url, { credentials: 'include' })
+      const res = await fetch(url, { 
+        credentials: 'include',
+        headers
+      })
+      
+      // Handle expired token - redirect to login
+      if (res.status === 401) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        window.dispatchEvent(new Event('authStateChanged'))
+        alert('Your session has expired. Please login again.')
+        window.location.href = '/login'
+        return
+      }
+      
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setFeaturedProducts(data?.data?.products ?? data?.products ?? [])

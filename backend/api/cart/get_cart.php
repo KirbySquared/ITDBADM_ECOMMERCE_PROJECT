@@ -4,12 +4,16 @@ require_once __DIR__ . '/../../utils/response.php';
 
 header('Content-Type: application/json');
 
-// Get authorization header
-$headers = getallheaders();
+// Get authorization header (case-insensitive)
+$headers = function_exists('getallheaders') ? getallheaders() : [];
 $token = null;
 
-if (isset($headers['Authorization'])) {
-    $token = str_replace('Bearer ', '', $headers['Authorization']);
+// Case-insensitive header check
+foreach ($headers as $k => $v) {
+    if (strtolower($k) === 'authorization') {
+        $token = preg_replace('/^Bearer\s+/i', '', $v);
+        break;
+    }
 }
 if (!$token) {
     sendError('Authorization token required', 401);

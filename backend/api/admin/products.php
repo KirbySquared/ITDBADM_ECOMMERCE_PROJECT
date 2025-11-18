@@ -239,6 +239,7 @@ try {
                         SELECT 
                             p.product_id,
                             p.category_id,
+                            p.genre_id,
                             p.product_name,
                             p.brand,
                             p.model,
@@ -309,6 +310,7 @@ try {
                         SELECT 
                             p.product_id,
                             p.category_id,
+                            p.genre_id,
                             p.product_name,
                             p.brand,
                             p.model,
@@ -408,6 +410,7 @@ try {
                     $sql = "SELECT 
                                 p.product_id,
                                 p.category_id,
+                                p.genre_id,
                                 p.product_name,
                                 p.brand,
                                 p.model,
@@ -431,6 +434,7 @@ try {
                     $sql = "SELECT 
                                 p.product_id,
                                 p.category_id,
+                                p.genre_id,
                                 p.product_name,
                                 p.brand,
                                 p.model,
@@ -460,6 +464,7 @@ try {
                     $sql = "SELECT 
                                 p.product_id,
                                 p.category_id,
+                                p.genre_id,
                                 p.product_name,
                                 p.brand,
                                 p.model,
@@ -605,17 +610,29 @@ try {
                 sendError('Category not found', 404);
             }
             
+            // Check if genre exists (if provided)
+            $genreId = isset($input['genre_id']) && $input['genre_id'] !== null && $input['genre_id'] !== '' ? (int)$input['genre_id'] : null;
+            if ($genreId !== null) {
+                $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_id = ?");
+                $stmt->execute([$genreId]);
+                if (!$stmt->fetch()) {
+                    sendError('Genre not found', 404);
+                }
+            }
+            
             // Insert product - price is stored in PHP (base currency)
+            // Brand and model can be empty for games (when genre_id is set)
             $stmt = $pdo->prepare("
-                INSERT INTO products (category_id, product_name, brand, model, description, price, specifications) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (category_id, genre_id, product_name, brand, model, description, price, specifications) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
                 $input['category_id'],
+                $genreId,
                 $input['product_name'],
-                $input['brand'],
-                $input['model'] ?? null,
+                $input['brand'] ?? null, // Can be null for games
+                $input['model'] ?? null, // Can be null for games
                 $input['description'] ?? null,
                 $priceInPhp, // Store price in PHP
                 isset($input['specifications']) ? json_encode($input['specifications']) : null
@@ -652,6 +669,7 @@ try {
                     SELECT 
                         p.product_id,
                         p.category_id,
+                        p.genre_id,
                         p.product_name,
                         p.brand,
                         p.model,
@@ -672,6 +690,7 @@ try {
                     SELECT 
                         p.product_id,
                         p.category_id,
+                        p.genre_id,
                         p.product_name,
                         p.brand,
                         p.model,
@@ -755,15 +774,31 @@ try {
                 }
             }
             
+            // Check if genre exists (if provided)
+            if (isset($input['genre_id']) && $input['genre_id'] !== null && $input['genre_id'] !== '') {
+                $genreId = (int)$input['genre_id'];
+                $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_id = ?");
+                $stmt->execute([$genreId]);
+                if (!$stmt->fetch()) {
+                    sendError('Genre not found', 404);
+                }
+            }
+            
             // Build update query (exclude stock_quantity and currency - price is stored in PHP)
             $updateFields = [];
             $params = [];
             
-            $allowedFields = ['category_id', 'product_name', 'brand', 'model', 'description'];
+            $allowedFields = ['category_id', 'genre_id', 'product_name', 'brand', 'model', 'description'];
             foreach ($allowedFields as $field) {
                 if (isset($input[$field])) {
-                    $updateFields[] = "$field = ?";
-                    $params[] = $input[$field];
+                    // Handle genre_id: can be null to clear it
+                    if ($field === 'genre_id') {
+                        $updateFields[] = "$field = ?";
+                        $params[] = ($input[$field] === null || $input[$field] === '') ? null : (int)$input[$field];
+                    } else {
+                        $updateFields[] = "$field = ?";
+                        $params[] = $input[$field];
+                    }
                 }
             }
             
@@ -836,6 +871,7 @@ try {
                     SELECT 
                         p.product_id,
                         p.category_id,
+                        p.genre_id,
                         p.product_name,
                         p.brand,
                         p.model,
@@ -860,6 +896,7 @@ try {
                     SELECT 
                         p.product_id,
                         p.category_id,
+                        p.genre_id,
                         p.product_name,
                         p.brand,
                         p.model,

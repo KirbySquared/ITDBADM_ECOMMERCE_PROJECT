@@ -116,6 +116,14 @@ switch ($path) {
         }
         break;
         
+    case 'auth/refresh-token':
+        if ($method === 'POST') {
+            include 'auth/refresh-token.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
     case 'products':
         if ($method === 'GET') {
             // Check if there's an ID in the query string
@@ -144,6 +152,14 @@ switch ($path) {
     case 'categories':
         if ($method === 'GET') {
             include 'categories/get_categories.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
+    case 'genres':
+        if ($method === 'GET') {
+            include 'genres/get_genres.php';
         } else {
             sendError('Method not allowed', 405);
         }
@@ -204,6 +220,7 @@ switch ($path) {
     case 'admin/logout':
     case 'admin/users':
     case 'admin/categories':
+    case 'admin/genres':
     case 'admin/branches':
     case 'admin/products':
     case 'admin/orders':
@@ -230,8 +247,8 @@ switch ($path) {
             break;
         }
         
-        // Check if it's an admin route with ID (e.g., admin/users/123, admin/products/123/images, admin/products/123/inventory, admin/orders/123, admin/branches/123)
-        if (preg_match('/^admin\/(users|categories|branches|products|orders)\/\d+$/', $path) || 
+        // Check if it's an admin route with ID (e.g., admin/users/123, admin/products/123/images, admin/products/123/inventory, admin/orders/123, admin/branches/123, admin/genres/123)
+        if (preg_match('/^admin\/(users|categories|branches|products|orders|genres)\/\d+$/', $path) || 
             preg_match('/^admin\/products\/\d+\/(images|inventory)/', $path)) {
             error_log("Routing to admin API for path: " . $path);
             include 'admin/index.php';

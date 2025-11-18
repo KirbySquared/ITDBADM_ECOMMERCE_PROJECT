@@ -73,6 +73,14 @@ function AdminSidebar({ currentPath }: AdminSidebarProps) {
         </Link>
         
         <Link 
+          to="/admin/genres" 
+          className={`nav-link ${activePath.startsWith('/admin/genres') ? 'active' : ''}`}
+        >
+          <i className="bi bi-controller me-2"></i>
+          Genres
+        </Link>
+        
+        <Link 
           to="/admin/branches" 
           className={`nav-link ${activePath.startsWith('/admin/branches') ? 'active' : ''}`}
         >

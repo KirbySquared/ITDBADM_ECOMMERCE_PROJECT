@@ -58,6 +58,10 @@ interface Category {
   category_name: string
 }
 
+interface Genre {
+  genre_id: number
+  genre_name: string
+}
 
 interface Branch {
   branch_id: number
@@ -70,6 +74,7 @@ function AdminProducts() {
   const { currency } = useCurrency()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [genres, setGenres] = useState<Genre[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [selectedBranchId, setSelectedBranchId] = useState<number>(1) // Default to branch 1 (0 = no branch)
   const [loading, setLoading] = useState(true)
@@ -101,6 +106,28 @@ function AdminProducts() {
       }
     } catch (err) {
       console.error('Failed to fetch categories:', err)
+    }
+  }
+
+  const fetchGenres = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+
+      const response = await fetch('http://localhost:8000/api/admin/genres', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setGenres(data.data.genres)
+      }
+    } catch (err) {
+      console.error('Failed to fetch genres:', err)
     }
   }
 
@@ -170,6 +197,7 @@ function AdminProducts() {
 
   useEffect(() => {
     fetchCategories()
+    fetchGenres()
     fetchBranches()
   }, [])
 
@@ -638,13 +666,14 @@ function AdminProducts() {
 
       {/* Product Modal */}
         <AdminProductModal
-        show={showModal}
-        onHide={() => setShowModal(false)}
-        product={selectedProduct}
-        categories={categories}
-        selectedBranchId={selectedBranchId}
-        onSave={handleSaveProduct}
-      />
+          show={showModal}
+          onHide={() => setShowModal(false)}
+          product={selectedProduct}
+          categories={categories}
+          genres={genres}
+          selectedBranchId={selectedBranchId}
+          onSave={handleSaveProduct}
+        />
 
       {/* Add Product to Branch Modal */}
       <AddProductToBranchModal

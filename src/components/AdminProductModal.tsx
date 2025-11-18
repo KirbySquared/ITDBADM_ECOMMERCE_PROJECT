@@ -28,6 +28,7 @@ import AdminProductImagesModal from './AdminProductImagesModal'
 interface Product {
   product_id?: number
   category_id: number
+  genre_id?: number | null
   product_name: string
   brand: string
   model?: string
@@ -56,18 +57,25 @@ interface Category {
   category_name: string
 }
 
+interface Genre {
+  genre_id: number
+  genre_name: string
+}
+
 interface AdminProductModalProps {
   show: boolean
   onHide: () => void
   product?: Product | null
   categories: Category[]
+  genres: Genre[]
   selectedBranchId?: number
   onSave: (productData: Omit<Product, 'product_id' | 'category_name' | 'created_at' | 'updated_at'>) => Promise<void>
 }
 
-function AdminProductModal({ show, onHide, product, categories, selectedBranchId = 1, onSave }: AdminProductModalProps) {
+function AdminProductModal({ show, onHide, product, categories, genres, selectedBranchId = 1, onSave }: AdminProductModalProps) {
   const [formData, setFormData] = useState<Product>({
     category_id: 0,
+    genre_id: null,
     product_name: '',
     brand: '',
     model: '',
@@ -86,6 +94,7 @@ function AdminProductModal({ show, onHide, product, categories, selectedBranchId
     if (product) {
       setFormData({
         ...product,
+        genre_id: product.genre_id ?? null,
         price: product.price ? Number(product.price) : 0,
         stock_quantity: product.stock_quantity ? Number(product.stock_quantity) : 0,
         currency: product.currency || 'PHP', // Default to PHP (base currency)
@@ -96,6 +105,7 @@ function AdminProductModal({ show, onHide, product, categories, selectedBranchId
     } else {
       setFormData({
         category_id: categories.length > 0 ? categories[0].category_id : 0,
+        genre_id: null,
         product_name: '',
         brand: '',
         model: '',
@@ -108,7 +118,7 @@ function AdminProductModal({ show, onHide, product, categories, selectedBranchId
       setSpecificationsText('')
     }
     setErrors({})
-  }, [product, show, categories])
+  }, [product, show, categories, genres])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -170,7 +180,8 @@ function AdminProductModal({ show, onHide, product, categories, selectedBranchId
     const newErrors: Record<string, string> = {}
     
     if (!formData.product_name.trim()) newErrors.product_name = 'Product name is required'
-    if (!formData.brand.trim()) newErrors.brand = 'Brand is required'
+    // Brand is only required if genre_id is not set (for non-game products)
+    if (!formData.genre_id && !formData.brand.trim()) newErrors.brand = 'Brand is required (or select a genre for games)'
     if (!formData.category_id || formData.category_id === 0) newErrors.category_id = 'Category is required'
     if (formData.price <= 0) newErrors.price = 'Price must be greater than 0'
     // Only validate stock_quantity if editing an existing product with a branch
@@ -276,7 +287,9 @@ function AdminProductModal({ show, onHide, product, categories, selectedBranchId
                   </div>
                   
                   <div className="col-md-6 mb-3">
-                    <label htmlFor="brand" className="form-label">Brand *</label>
+                    <label htmlFor="brand" className="form-label">
+                      Brand {!formData.genre_id && '*'}
+                    </label>
                     <input
                       type="text"
                       className={`form-control ${errors.brand ? 'is-invalid' : ''}`}
@@ -284,9 +297,17 @@ function AdminProductModal({ show, onHide, product, categories, selectedBranchId
                       name="brand"
                       value={formData.brand}
                       onChange={handleChange}
-                      required
+                      required={!formData.genre_id}
+                      disabled={!!formData.genre_id}
+                      placeholder={formData.genre_id ? 'Not required for games' : 'Enter brand name'}
                     />
                     {errors.brand && <div className="invalid-feedback">{errors.brand}</div>}
+                    {formData.genre_id && (
+                      <div className="form-text">
+                        <i className="bi bi-info-circle me-1"></i>
+                        Brand is not required for game products
+                      </div>
+                    )}
                   </div>
                 </div>
                 
@@ -300,7 +321,15 @@ function AdminProductModal({ show, onHide, product, categories, selectedBranchId
                       name="model"
                       value={formData.model}
                       onChange={handleChange}
+                      disabled={!!formData.genre_id}
+                      placeholder={formData.genre_id ? 'Not required for games' : 'Enter model name'}
                     />
+                    {formData.genre_id && (
+                      <div className="form-text">
+                        <i className="bi bi-info-circle me-1"></i>
+                        Model is not required for game products
+                      </div>
+                    )}
                   </div>
                   
                   <div className="col-md-6 mb-3">
@@ -321,6 +350,39 @@ function AdminProductModal({ show, onHide, product, categories, selectedBranchId
                       ))}
                     </select>
                     {errors.category_id && <div className="invalid-feedback">{errors.category_id}</div>}
+                  </div>
+                </div>
+                
+                <div className="row">
+                  <div className="col-md-6 mb-3">
+                    <label htmlFor="genre_id" className="form-label">Genre (for games)</label>
+                    <select
+                      className="form-select"
+                      id="genre_id"
+                      name="genre_id"
+                      value={formData.genre_id || ''}
+                      onChange={(e) => {
+                        const value = e.target.value ? parseInt(e.target.value) : null
+                        setFormData(prev => ({
+                          ...prev,
+                          genre_id: value,
+                          // Clear brand and model when genre is selected (for games)
+                          brand: value ? '' : prev.brand,
+                          model: value ? '' : prev.model
+                        }))
+                      }}
+                    >
+                      <option value="">No Genre (for non-game products)</option>
+                      {genres.map(genre => (
+                        <option key={genre.genre_id} value={genre.genre_id}>
+                          {genre.genre_name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="form-text">
+                      <i className="bi bi-info-circle me-1"></i>
+                      Select a genre for game products. Brand and model will be optional.
+                    </div>
                   </div>
                 </div>
                 

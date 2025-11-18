@@ -39,6 +39,7 @@ import AdminProducts from '../pages/AdminProducts'
 import AdminOrders from '../pages/AdminOrders'
 import AdminUsers from '../pages/AdminUsers'
 import AdminCategories from '../pages/AdminCategories'
+import AdminGenres from '../pages/AdminGenres'
 import AdminBranches from '../pages/AdminBranches'
 import AdminRoute from '../components/AdminRoute'
 import { AdminNotificationProvider } from '../context/AdminNotificationContext'
@@ -102,6 +103,14 @@ function AppRoutes() {
         <AdminRoute>
           <AdminNotificationProvider>
             <AdminCategories />
+          </AdminNotificationProvider>
+        </AdminRoute>
+      } />
+      
+      <Route path="/admin/genres" element={
+        <AdminRoute>
+          <AdminNotificationProvider>
+            <AdminGenres />
           </AdminNotificationProvider>
         </AdminRoute>
       } />

@@ -22,6 +22,18 @@ interface Product {
   stock_quantity: number
 }
 
+interface Category {
+  category_id: number
+  category_name: string
+  description?: string
+}
+
+interface Genre {
+  genre_id: number
+  genre_name: string
+  description?: string
+}
+
 type Pagination = {
   page: number
   limit: number
@@ -70,13 +82,22 @@ function Products() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  const [filter, setFilter] = useState<'all' | 'consoles' | 'accessories' | 'games'>('all')
+  const [categories, setCategories] = useState<Category[]>([])
+  const [loadingCategories, setLoadingCategories] = useState(false)
+  const [genres, setGenres] = useState<Genre[]>([])
+  const [loadingGenres, setLoadingGenres] = useState(false)
 
   const [params, setParams] = useSearchParams()
+  // Separate state for search input (updates immediately) and search query (debounced)
+  const [searchInput, setSearchInput] = useState(params.get('q') ?? '')
   const [q, setQ] = useState(params.get('q') ?? '')
   const [platform, setPlatform] = useState<string[]>([])
-  const [genreId, setGenreId] = useState<number | null>(null)
+  const [categoryId, setCategoryId] = useState<number | null>(
+    params.get('category_id') ? Number(params.get('category_id')) : null
+  )
+  const [genreId, setGenreId] = useState<number | null>(
+    params.get('genre_id') ? Number(params.get('genre_id')) : null
+  )
   const [year, setYear] = useState<number | ''>('')
   const [month, setMonth] = useState<number | ''>('')
   // Separate state for slider UI (updates immediately) and filter (debounced)
@@ -91,8 +112,9 @@ function Products() {
   const [addingId, setAddingId] = useState<number | null>(null)
   const [addedIds, setAddedIds] = useState<Record<number, boolean>>({})
 
-  // Debounce timer ref for price slider
-  const priceDebounceTimer = useRef<NodeJS.Timeout | null>(null)
+  // Debounce timer refs
+  const priceDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ------- NEW: slider handlers with debouncing -------
   const handleMinPriceChange = (val: number) => {
@@ -133,13 +155,80 @@ function Products() {
     setPriceSlider(price)
   }, [price[0], price[1]])
 
-  // Cleanup debounce timer on unmount
+  // Debounce search input
+  useEffect(() => {
+    // Clear existing timer
+    if (searchDebounceTimer.current) {
+      clearTimeout(searchDebounceTimer.current)
+    }
+    
+    // Set new timer to update actual search query after 500ms of no changes
+    searchDebounceTimer.current = setTimeout(() => {
+      setPage(1)
+      setQ(searchInput)
+    }, 500)
+    
+    return () => {
+      if (searchDebounceTimer.current) {
+        clearTimeout(searchDebounceTimer.current)
+      }
+    }
+  }, [searchInput])
+
+  // Cleanup debounce timers on unmount
   useEffect(() => {
     return () => {
       if (priceDebounceTimer.current) {
         clearTimeout(priceDebounceTimer.current)
       }
+      if (searchDebounceTimer.current) {
+        clearTimeout(searchDebounceTimer.current)
+      }
     }
+  }, [])
+
+  // Fetch categories on component mount
+  useEffect(() => {
+    const fetchCategories = async () => {
+      setLoadingCategories(true)
+      try {
+        const res = await fetch(api('/categories'))
+        const data = await res.json()
+        if (data.success && Array.isArray(data.data)) {
+          setCategories(data.data)
+        } else if (Array.isArray(data)) {
+          // Handle case where API returns array directly
+          setCategories(data)
+        }
+      } catch (err) {
+        console.error('Failed to fetch categories:', err)
+      } finally {
+        setLoadingCategories(false)
+      }
+    }
+    fetchCategories()
+  }, [])
+
+  // Fetch genres on component mount
+  useEffect(() => {
+    const fetchGenres = async () => {
+      setLoadingGenres(true)
+      try {
+        const res = await fetch(api('/genres'))
+        const data = await res.json()
+        if (data.success && Array.isArray(data.data)) {
+          setGenres(data.data)
+        } else if (Array.isArray(data)) {
+          // Handle case where API returns array directly
+          setGenres(data)
+        }
+      } catch (err) {
+        console.error('Failed to fetch genres:', err)
+      } finally {
+        setLoadingGenres(false)
+      }
+    }
+    fetchGenres()
   }, [])
 
   function buildQS() {
@@ -149,6 +238,7 @@ function Products() {
     if (userBranchId != null) sp.set('branch_id', String(userBranchId))
     if (q) sp.set('q', q)
     if (platform.length) sp.set('platform', platform.join(','))
+    if (categoryId) sp.set('category_id', String(categoryId))
     if (genreId) sp.set('genre_id', String(genreId))
     if (year) sp.set('year', String(year))
     if (month) sp.set('month', String(month))
@@ -193,14 +283,43 @@ function Products() {
     setLoading(true)
     setError(null)
     try {
+      // Ensure token is valid before making request
+      const { ensureValidToken } = await import('../utils/tokenRefresh')
+      const tokenValid = await ensureValidToken()
+      if (!tokenValid) {
+        return // ensureValidToken already handles redirect
+      }
+      
+      const token = localStorage.getItem('token')
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
       const qs = buildQS()
-      const res = await fetch(ENDPOINTS.search(qs), { credentials: 'include' })
+      const res = await fetch(ENDPOINTS.search(qs), { 
+        credentials: 'include',
+        headers
+      })
+
+      // Handle expired token - redirect to login
+      if (res.status === 401) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        window.dispatchEvent(new Event('authStateChanged'))
+        alert('Your session has expired. Please login again.')
+        window.location.href = '/login'
+        return
+      }
 
       if (res.status === 404) {
         // fallback to list
         console.warn('[Products] /products/search not found. Falling back to /products list.')
         const listRes = await fetch(ENDPOINTS.list(currency, userBranchId), {
           credentials: 'include',
+          headers
         })
         const listJson = await listRes.json()
         if (!listRes.ok || listJson.success === false) {
@@ -210,7 +329,7 @@ function Products() {
         const filtered = applyClientFilters(rows)
         setProducts(filtered)
         setPagination(null)
-        setParams(new URLSearchParams(qs))
+        setParams(new URLSearchParams(qs), { replace: true })
         return
       }
 
@@ -220,7 +339,8 @@ function Products() {
       }
       setProducts(data.data.products || [])
       setPagination(data.data.pagination || null)
-      setParams(new URLSearchParams(buildQS()))
+      // Update URL without causing page reload
+      setParams(new URLSearchParams(buildQS()), { replace: true })
     } catch (e: any) {
       setError(e.message || 'Failed to fetch products')
       setProducts([])
@@ -241,6 +361,7 @@ function Products() {
     userBranchId,
     q,
     platform,
+    categoryId,
     genreId,
     year,
     month,
@@ -251,10 +372,6 @@ function Products() {
     authLoading,
   ])
 
-  const filtered =
-    filter === 'all'
-      ? products
-      : products.filter(p => (p.category_name || '').toLowerCase() === filter)
 
   // ---------- add-to-cart with category restrictions ----------
   const addToCart = async (product: Product, quantity: number = 1) => {
@@ -377,10 +494,9 @@ function Products() {
           <aside className="col-lg-3 mb-4">
             <input
               className="form-control mb-3"
-              value={q}
+              value={searchInput}
               onChange={e => {
-                setPage(1)
-                setQ(e.target.value)
+                setSearchInput(e.target.value)
               }}
               placeholder="Search…"
             />
@@ -409,22 +525,55 @@ function Products() {
             </div>
 
             <div className="mb-3">
+              <label className="form-label">Category</label>
+              {loadingCategories ? (
+                <div className="form-select d-flex align-items-center">
+                  <div className="spinner-border spinner-border-sm me-2" role="status"></div>
+                  Loading categories...
+                </div>
+              ) : (
+                <select
+                  className="form-select"
+                  value={categoryId ?? ''}
+                  onChange={e => {
+                    setPage(1)
+                    setCategoryId(e.target.value ? Number(e.target.value) : null)
+                  }}
+                >
+                  <option value="">All Categories</option>
+                  {categories.map(category => (
+                    <option key={category.category_id} value={category.category_id}>
+                      {category.category_name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className="mb-3">
               <label className="form-label">Genre</label>
-              <select
-                className="form-select"
-                value={genreId ?? ''}
-                onChange={e => {
-                  setPage(1)
-                  setGenreId(e.target.value ? Number(e.target.value) : null)
-                }}
-              >
-                <option value="">All Genres</option>
-                <option value="1">Action</option>
-                <option value="2">RPG</option>
-                <option value="3">Sports</option>
-                <option value="4">Adventure</option>
-                <option value="5">Shooter</option>
-              </select>
+              {loadingGenres ? (
+                <div className="form-select d-flex align-items-center">
+                  <div className="spinner-border spinner-border-sm me-2" role="status"></div>
+                  Loading genres...
+                </div>
+              ) : (
+                <select
+                  className="form-select"
+                  value={genreId ?? ''}
+                  onChange={e => {
+                    setPage(1)
+                    setGenreId(e.target.value ? Number(e.target.value) : null)
+                  }}
+                >
+                  <option value="">All Genres</option>
+                  {genres.map(genre => (
+                    <option key={genre.genre_id} value={genre.genre_id}>
+                      {genre.genre_name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div className="d-flex gap-2 mb-3">
@@ -513,28 +662,11 @@ function Products() {
               <option value="price_asc">Price: Low to High</option>
               <option value="price_desc">Price: High to Low</option>
             </select>
-
-            <div className="d-flex flex-wrap gap-2">
-              {(['all', 'consoles', 'accessories', 'games'] as const).map(k => (
-                <button
-                  key={k}
-                  className={`btn btn-sm ${
-                    filter === k ? 'btn-primary' : 'btn-outline-primary'
-                  }`}
-                  onClick={() => {
-                    setPage(1)
-                    setFilter(k)
-                  }}
-                >
-                  {k === 'all' ? 'All Products' : k[0].toUpperCase() + k.slice(1)}
-                </button>
-              ))}
-            </div>
           </aside>
 
           <main className="col-lg-9">
             <div className="row g-4">
-              {filtered.map(product => {
+              {products.map(product => {
                 const amount = product.display_price ?? product.price
                 const inStockNow = (product.stock_quantity ?? 0) > 0
                 const isAdding = addingId === product.product_id
