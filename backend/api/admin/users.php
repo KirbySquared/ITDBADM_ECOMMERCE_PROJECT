@@ -67,7 +67,7 @@ try {
             if ($userIdParam) {
                 // Get specific user
                 $stmt = $pdo->prepare("
-                    SELECT user_id, username, email, first_name, last_name, phone, address, role, created_at, updated_at
+                    SELECT user_id, username, email, first_name, last_name, phone, address, role, branch_id, created_at, updated_at
                     FROM users 
                     WHERE user_id = ?
                 ");
@@ -107,7 +107,7 @@ try {
                 $whereClause = $whereConditions ? 'WHERE ' . implode(' AND ', $whereConditions) : '';
                 
                 // Get users
-                $sql = "SELECT user_id, username, email, first_name, last_name, phone, role, created_at, updated_at
+                $sql = "SELECT user_id, username, email, first_name, last_name, phone, role, branch_id, created_at, updated_at
                         FROM users 
                         $whereClause
                         ORDER BY created_at DESC 
@@ -159,13 +159,29 @@ try {
                 sendError('Username or email already exists', 409);
             }
             
+            // Validate staff role requires branch_id
+            $userRole = $input['role'] ?? 'user';
+            if ($userRole === 'staff') {
+                if (!isset($input['branch_id']) || empty($input['branch_id'])) {
+                    sendError('Staff users must be assigned to a branch. Branch ID is required.', 400);
+                }
+                
+                // Validate branch exists
+                $branchId = (int)$input['branch_id'];
+                $branchCheck = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_id = ?");
+                $branchCheck->execute([$branchId]);
+                if (!$branchCheck->fetch()) {
+                    sendError('Invalid branch selected', 400);
+                }
+            }
+            
             // Hash password
             $hashedPassword = password_hash($input['password'], PASSWORD_DEFAULT);
             
             // Insert user - set initial status to 'inactive' (will be set to 'active' on first login)
             $stmt = $pdo->prepare("
-                INSERT INTO users (username, email, password_hash, first_name, last_name, phone, address, role, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (username, email, password_hash, first_name, last_name, phone, address, role, status, branch_id) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
@@ -176,15 +192,16 @@ try {
                 $input['last_name'],
                 $input['phone'] ?? null,
                 $input['address'] ?? null,
-                $input['role'] ?? 'user',
-                'inactive' // status - will be set to 'active' on login
+                $userRole,
+                'inactive', // status - will be set to 'active' on login
+                ($userRole === 'staff' && isset($input['branch_id'])) ? (int)$input['branch_id'] : null
             ]);
             
             $newUserId = $pdo->lastInsertId();
             
-            // Get created user - include status
+            // Get created user - include status and branch_id
             $stmt = $pdo->prepare("
-                SELECT user_id, username, email, first_name, last_name, phone, address, role, status, created_at
+                SELECT user_id, username, email, first_name, last_name, phone, address, role, branch_id, status, created_at
                 FROM users WHERE user_id = ?
             ");
             $stmt->execute([$newUserId]);
@@ -226,15 +243,49 @@ try {
                 sendError('Invalid email format', 400);
             }
             
+            // Get current user's role and branch_id for validation
+            $currentUserStmt = $pdo->prepare("SELECT role, branch_id FROM users WHERE user_id = ?");
+            $currentUserStmt->execute([$userIdParam]);
+            $currentUser = $currentUserStmt->fetch();
+            
+            // Determine the role after update (use new role if provided, otherwise current role)
+            $newRole = isset($input['role']) ? $input['role'] : ($currentUser ? $currentUser['role'] : 'user');
+            
+            // Validate staff role requires branch_id
+            if ($newRole === 'staff') {
+                // Determine branch_id after update
+                $newBranchId = isset($input['branch_id']) ? $input['branch_id'] : ($currentUser ? $currentUser['branch_id'] : null);
+                
+                // If updating to staff role or user is already staff, branch_id is required
+                if (empty($newBranchId)) {
+                    sendError('Staff users must be assigned to a branch. Branch ID is required.', 400);
+                }
+                
+                // Validate branch exists if branch_id is being updated
+                if (isset($input['branch_id'])) {
+                    $branchId = (int)$input['branch_id'];
+                    $branchCheck = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_id = ?");
+                    $branchCheck->execute([$branchId]);
+                    if (!$branchCheck->fetch()) {
+                        sendError('Invalid branch selected', 400);
+                    }
+                }
+            }
+            
             // Build update query
             $updateFields = [];
             $params = [];
             
-            $allowedFields = ['username', 'email', 'first_name', 'last_name', 'phone', 'address', 'role'];
+            $allowedFields = ['username', 'email', 'first_name', 'last_name', 'phone', 'address', 'role', 'branch_id'];
             foreach ($allowedFields as $field) {
                 if (isset($input[$field])) {
                     $updateFields[] = "$field = ?";
-                    $params[] = $input[$field];
+                    // Handle branch_id: convert to int if provided, otherwise null
+                    if ($field === 'branch_id') {
+                        $params[] = !empty($input[$field]) ? (int)$input[$field] : null;
+                    } else {
+                        $params[] = $input[$field];
+                    }
                 }
             }
             
@@ -256,7 +307,7 @@ try {
             
             // Get updated user
             $stmt = $pdo->prepare("
-                SELECT user_id, username, email, first_name, last_name, phone, address, role, created_at, updated_at
+                SELECT user_id, username, email, first_name, last_name, phone, address, role, branch_id, created_at, updated_at
                 FROM users WHERE user_id = ?
             ");
             $stmt->execute([$userIdParam]);
