@@ -20,6 +20,12 @@
  */
 import { useState, useEffect } from 'react'
 
+interface Branch {
+  branch_id: number
+  branch_name: string
+  address?: string
+}
+
 interface User {
   user_id?: number
   username: string
@@ -29,6 +35,7 @@ interface User {
   phone?: string
   address?: string
   role: string
+  branch_id?: number
   password?: string
   created_at?: string
   updated_at?: string
@@ -50,14 +57,47 @@ function AdminUserModal({ show, onHide, user, onSave }: AdminUserModalProps) {
     phone: '',
     address: '',
     role: 'user',
+    branch_id: undefined,
     password: ''
   })
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [loadingBranches, setLoadingBranches] = useState(false)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
+    if (show) {
+      fetchBranches()
+    }
+  }, [show])
+
+  const fetchBranches = async () => {
+    try {
+      setLoadingBranches(true)
+      const response = await fetch('http://localhost:8000/api/branches', {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setBranches(data.data.branches)
+      }
+    } catch (err) {
+      console.error('Failed to fetch branches:', err)
+    } finally {
+      setLoadingBranches(false)
+    }
+  }
+
+  useEffect(() => {
     if (user) {
-      setFormData(user)
+      setFormData({
+        ...user,
+        branch_id: user.branch_id || undefined
+      })
     } else {
       setFormData({
         username: '',
@@ -67,6 +107,7 @@ function AdminUserModal({ show, onHide, user, onSave }: AdminUserModalProps) {
         phone: '',
         address: '',
         role: 'user',
+        branch_id: undefined,
         password: ''
       })
     }
@@ -75,16 +116,33 @@ function AdminUserModal({ show, onHide, user, onSave }: AdminUserModalProps) {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
+    setFormData(prev => {
+      const newData = {
+        ...prev,
+        [name]: value
+      }
+      
+      // Clear branch_id if role is changed from staff to something else
+      if (name === 'role' && value !== 'staff') {
+        newData.branch_id = undefined
+      }
+      
+      return newData
+    })
     
     // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
         [name]: ''
+      }))
+    }
+    
+    // Clear branch_id error if role is changed away from staff
+    if (name === 'role' && value !== 'staff' && errors.branch_id) {
+      setErrors(prev => ({
+        ...prev,
+        branch_id: ''
       }))
     }
   }
@@ -106,6 +164,11 @@ function AdminUserModal({ show, onHide, user, onSave }: AdminUserModalProps) {
       newErrors.email = 'Email format is invalid'
     }
     
+    // Staff role requires branch_id
+    if (formData.role === 'staff' && (!formData.branch_id || formData.branch_id === 0)) {
+      newErrors.branch_id = 'Branch selection is required for staff users'
+    }
+    
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -123,6 +186,14 @@ function AdminUserModal({ show, onHide, user, onSave }: AdminUserModalProps) {
       // For existing users, don't send password if it's empty
       if (user && !saveData.password) {
         delete saveData.password
+      }
+      
+      // Only include branch_id if role is staff, otherwise exclude it
+      if (saveData.role !== 'staff') {
+        delete saveData.branch_id
+      } else if (saveData.branch_id) {
+        // Ensure branch_id is a number
+        saveData.branch_id = parseInt(saveData.branch_id.toString())
       }
       
       await onSave(saveData)
@@ -237,6 +308,51 @@ function AdminUserModal({ show, onHide, user, onSave }: AdminUserModalProps) {
                   </select>
                 </div>
               </div>
+              
+              {/* Branch selection - required for staff role */}
+              {formData.role === 'staff' && (
+                <div className="row">
+                  <div className="col-md-6 mb-3">
+                    <label htmlFor="branch_id" className="form-label">
+                      Branch <span className="text-danger">*</span>
+                    </label>
+                    {loadingBranches ? (
+                      <div className="form-control">
+                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        Loading branches...
+                      </div>
+                    ) : (
+                      <select
+                        className={`form-select ${errors.branch_id ? 'is-invalid' : ''}`}
+                        id="branch_id"
+                        name="branch_id"
+                        value={formData.branch_id || ''}
+                        onChange={(e) => {
+                          const value = e.target.value ? parseInt(e.target.value) : undefined
+                          setFormData(prev => ({ ...prev, branch_id: value }))
+                          if (errors.branch_id) {
+                            setErrors(prev => ({ ...prev, branch_id: '' }))
+                          }
+                        }}
+                        required
+                      >
+                        <option value="">Select a branch</option>
+                        {branches.map(branch => (
+                          <option key={branch.branch_id} value={branch.branch_id}>
+                            {branch.branch_name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {errors.branch_id && <div className="invalid-feedback">{errors.branch_id}</div>}
+                    {formData.role === 'staff' && !errors.branch_id && (
+                      <div className="form-text">
+                        Staff users must be assigned to a specific branch
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               
               {/* Password field */}
               <div className="row">
