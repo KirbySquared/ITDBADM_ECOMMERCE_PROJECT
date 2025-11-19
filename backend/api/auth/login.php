@@ -31,26 +31,30 @@ if (empty($password)) {
     sendError('Password is required', 400);
 }
 
-// Get client identifier for rate limiting
-$clientId = getClientIdentifier();
+// Use email as identifier for rate limiting (per account, not per device)
+$rateLimitIdentifier = 'email_' . strtolower(trim($email));
 
-// Check rate limit: 5 attempts per 15 minutes
-$rateLimit = checkRateLimit($pdo, $clientId, 'login', 5, 900);
+// Check rate limit (READ-ONLY check, does not increment)
+$rateLimit = checkRateLimit($pdo, $rateLimitIdentifier, 'login', 5);
 if (!$rateLimit['allowed']) {
     logSecurityEvent($pdo, 'rate_limit_exceeded', 'high', 
-        "Login rate limit exceeded for $clientId", null, [
+        "Login rate limit exceeded for email: $email", null, [
             'email' => $email,
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            'attempts' => $rateLimit['current_attempts'] ?? 0
         ]);
     
     logForensics($pdo, 'rate_limit_exceeded', 
         "Login rate limit exceeded - possible brute force attack", null, [
             'email' => $email,
-            'client_id' => $clientId
+            'identifier' => $rateLimitIdentifier
         ]);
     
-    sendError('Too many login attempts. Please try again in ' . 
-        ceil(($rateLimit['reset_at'] ? (strtotime($rateLimit['reset_at']) - time()) : 900) / 60) . ' minutes.', 429);
+    $resetMinutes = $rateLimit['reset_at'] 
+        ? ceil((strtotime($rateLimit['reset_at']) - time()) / 60) 
+        : 15;
+    
+    sendError('Too many login attempts for this account. Please try again in ' . max(1, $resetMinutes) . ' minutes.', 429);
 }
 
 // Find user by email (now also selecting status and branch info)
@@ -65,6 +69,9 @@ $stmt->execute([$email]);
 $user = $stmt->fetch();
 
 if (!$user) {
+    // Increment rate limit on failed attempt (per email/account)
+    incrementRateLimit($pdo, $rateLimitIdentifier, 'login', 5, 900);
+    
     // Log failed login attempt
     logSecurityEvent($pdo, 'login_failed', 'medium', 
         "Failed login attempt - user not found", null, [
@@ -84,6 +91,9 @@ if (!$user) {
 
 // Verify password
 if (!password_verify($password, $user['password_hash'])) {
+    // Increment rate limit on failed attempt (per email/account)
+    incrementRateLimit($pdo, $rateLimitIdentifier, 'login', 5, 900);
+    
     // Log failed login attempt
     logSecurityEvent($pdo, 'login_failed', 'medium', 
         "Failed login attempt - invalid password", $user['user_id'], [
@@ -117,8 +127,8 @@ try {
     // You can log $e->getMessage() server-side if desired.
 }
 
-// On successful login, reset rate limit
-resetRateLimit($pdo, $clientId, 'login');
+// On successful login, reset rate limit for this account
+resetRateLimit($pdo, $rateLimitIdentifier, 'login');
 
 // Log successful login
 logSecurityEvent($pdo, 'login_success', 'low', 

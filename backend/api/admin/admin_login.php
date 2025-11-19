@@ -82,26 +82,30 @@ if (empty($password)) {
     sendError('Password is required', 400);
 }
 
-// Get client identifier for rate limiting
-$clientId = getClientIdentifier();
+// Use email as identifier for rate limiting (per account, not per device)
+$rateLimitIdentifier = 'email_' . strtolower(trim($email));
 
-// Check rate limit: 5 attempts per 15 minutes for admin login
-$rateLimit = checkRateLimit($pdo, $clientId, 'admin_login', 5, 900);
+// Check rate limit (READ-ONLY check, does not increment)
+$rateLimit = checkRateLimit($pdo, $rateLimitIdentifier, 'admin_login', 5);
 if (!$rateLimit['allowed']) {
     logSecurityEvent($pdo, 'rate_limit_exceeded', 'critical', 
-        "Admin login rate limit exceeded for $clientId", null, [
+        "Admin login rate limit exceeded for email: $email", null, [
             'email' => $email,
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            'attempts' => $rateLimit['current_attempts'] ?? 0
         ]);
     
     logForensics($pdo, 'admin_brute_force_attempt', 
         "Admin login rate limit exceeded - possible brute force attack", null, [
             'email' => $email,
-            'client_id' => $clientId
+            'identifier' => $rateLimitIdentifier
         ]);
     
-    sendError('Too many login attempts. Please try again in ' . 
-        ceil(($rateLimit['reset_at'] ? (strtotime($rateLimit['reset_at']) - time()) : 900) / 60) . ' minutes.', 429);
+    $resetMinutes = $rateLimit['reset_at'] 
+        ? ceil((strtotime($rateLimit['reset_at']) - time()) / 60) 
+        : 15;
+    
+    sendError('Too many login attempts for this account. Please try again in ' . max(1, $resetMinutes) . ' minutes.', 429);
 }
 
 error_log("Attempting admin login for email: " . $email);
@@ -119,6 +123,9 @@ try {
 
     if (!$user) {
         error_log("No admin user found with email: " . $email);
+        
+        // Increment rate limit on failed attempt (per email/account)
+        incrementRateLimit($pdo, $rateLimitIdentifier, 'admin_login', 5, 900);
         
         // Log failed admin login attempt
         logSecurityEvent($pdo, 'admin_login_failed', 'high', 
@@ -142,6 +149,9 @@ try {
     // Verify password
     if (!password_verify($password, $user['password_hash'])) {
         error_log("Password verification failed for email: " . $email);
+        
+        // Increment rate limit on failed attempt (per email/account)
+        incrementRateLimit($pdo, $rateLimitIdentifier, 'admin_login', 5, 900);
         
         // Log failed admin login attempt
         logSecurityEvent($pdo, 'admin_login_failed', 'high', 
@@ -177,8 +187,8 @@ try {
         error_log("Failed to update status for user_id {$user['user_id']}: " . $e->getMessage());
     }
 
-    // On successful admin login, reset rate limit
-    resetRateLimit($pdo, $clientId, 'admin_login');
+    // On successful admin login, reset rate limit for this account
+    resetRateLimit($pdo, $rateLimitIdentifier, 'admin_login');
     
     // Log successful admin login
     logSecurityEvent($pdo, 'admin_login_success', 'low', 
