@@ -29,6 +29,7 @@ function Cart() {
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<number | null>(null)
   const [locking, setLocking] = useState(false)
+  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set())
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -42,6 +43,13 @@ function Cart() {
     return () => window.removeEventListener('cartUpdated', handleCartUpdate)
     // refetch when currency changes
   }, [currency]) //  important: refetch when currency changes
+
+  // Auto-select all items when cart loads
+  useEffect(() => {
+    if (cartItems.length > 0 && selectedItems.size === 0) {
+      setSelectedItems(new Set(cartItems.map(item => item.cart_id)))
+    }
+  }, [cartItems])
 
   const fetchCart = async () => {
     setLoading(true)
@@ -197,9 +205,57 @@ function Cart() {
 
   const getCurrency = () => cartItems[0]?.currency || currency || 'PHP'
 
-  // Currency lock + navigate to checkout (unchanged)
+  // Get selected items
+  const selectedProducts = cartItems.filter(item => selectedItems.has(item.cart_id))
+
+  // Calculate total for selected items only
+  const selectedTotal = selectedProducts.reduce((sum, item) => {
+    return sum + (item.price * item.quantity)
+  }, 0)
+
+  // Toggle item selection
+  const toggleItemSelection = (cartId: number) => {
+    setSelectedItems(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(cartId)) {
+        newSet.delete(cartId)
+      } else {
+        newSet.add(cartId)
+      }
+      return newSet
+    })
+  }
+
+  // Select/Deselect all
+  const toggleSelectAll = () => {
+    if (selectedItems.size === cartItems.length) {
+      setSelectedItems(new Set())
+    } else {
+      setSelectedItems(new Set(cartItems.map(item => item.cart_id)))
+    }
+  }
+
+  // Remove item from selection when it's deleted
+  useEffect(() => {
+    setSelectedItems(prev => {
+      const newSet = new Set(prev)
+      const existingIds = new Set(cartItems.map(item => item.cart_id))
+      // Remove any selected items that no longer exist in cart
+      prev.forEach(id => {
+        if (!existingIds.has(id)) {
+          newSet.delete(id)
+        }
+      })
+      return newSet
+    })
+  }, [cartItems])
+
+  // Currency lock + navigate to checkout with selected items
   const lockRateAndGo = async () => {
-    if (cartItems.length === 0) return
+    if (selectedProducts.length === 0) {
+      alert('Please select at least one item to checkout.')
+      return
+    }
     setLocking(true)
     try {
       const token = localStorage.getItem('token')
@@ -209,8 +265,9 @@ function Cart() {
       }
       const cur = getCurrency()
 
-      const res = await fetch('http://localhost:8000/api/checkout/lock-currency', {
+      const res = await fetch(api('/checkout/lock-currency'), {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -225,6 +282,8 @@ function Cart() {
 
       const data = await res.json()
       sessionStorage.setItem('checkout_lock', JSON.stringify(data.data))
+      // Store selected cart IDs for checkout page to filter
+      sessionStorage.setItem('checkout_selected_items', JSON.stringify(Array.from(selectedItems)))
       navigate('/checkout')
     } catch (e) {
       console.error(e)
@@ -286,9 +345,36 @@ function Cart() {
         <div className="row g-4">
           <div className="col-lg-8">
             <div className="card">
+              <div className="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <div className="form-check">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id="selectAll"
+                    checked={cartItems.length > 0 && selectedItems.size === cartItems.length}
+                    onChange={toggleSelectAll}
+                  />
+                  <label className="form-check-label fw-semibold" htmlFor="selectAll">
+                    Select All ({selectedItems.size} of {cartItems.length})
+                  </label>
+                </div>
+              </div>
               <div className="card-body">
                 {cartItems.map(item => (
                   <div key={item.cart_id} className="row align-items-center py-3 border-bottom">
+                    <div className="col-md-1">
+                      <div className="form-check">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id={`item-${item.cart_id}`}
+                          checked={selectedItems.has(item.cart_id)}
+                          onChange={() => toggleItemSelection(item.cart_id)}
+                        />
+                        <label className="form-check-label" htmlFor={`item-${item.cart_id}`} style={{ cursor: 'pointer' }}>
+                        </label>
+                      </div>
+                    </div>
                     <div className="col-md-2">
                       {item.primary_image_url ? (
                         <img
@@ -396,8 +482,12 @@ function Cart() {
                 <h5 className="card-title mb-4">Order Summary</h5>
 
                 <div className="d-flex justify-content-between mb-2">
+                  <span>Selected Items:</span>
+                  <span className="fw-semibold">{selectedItems.size} item{selectedItems.size !== 1 ? 's' : ''}</span>
+                </div>
+                <div className="d-flex justify-content-between mb-2">
                   <span>Subtotal:</span>
-                  <span>{formatPrice(total, getCurrency())}</span>
+                  <span>{formatPrice(selectedTotal, getCurrency())}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-2">
                   <span>Shipping:</span>
@@ -406,21 +496,28 @@ function Cart() {
                 <hr />
                 <div className="d-flex justify-content-between mb-4">
                   <span className="fw-bold fs-5">Total:</span>
-                  <span className="fw-bold fs-5">{formatPrice(total, getCurrency())}</span>
+                  <span className="fw-bold fs-5">{formatPrice(selectedTotal, getCurrency())}</span>
                 </div>
+
+                {selectedItems.size === 0 && (
+                  <div className="alert alert-warning small mb-3">
+                    <i className="bi bi-exclamation-triangle me-2"></i>
+                    Please select at least one item to checkout.
+                  </div>
+                )}
 
                 <div className="d-grid">
                   <button
                     className="btn btn-primary btn-lg"
                     onClick={lockRateAndGo}
-                    disabled={locking}
+                    disabled={locking || selectedItems.size === 0}
                   >
-                    {locking ? 'Locking rate…' : 'Proceed to Checkout'}
+                    {locking ? 'Locking rate…' : `Proceed to Checkout (${selectedItems.size} item${selectedItems.size !== 1 ? 's' : ''})`}
                   </button>
                 </div>
 
                 <p className="text-muted small mt-2 mb-0">
-                  We’ll lock today’s rate and reserve items at your selected branch on the next step.
+                  We'll lock today's rate and reserve items at your selected branch on the next step.
                 </p>
               </div>
             </div>

@@ -58,13 +58,23 @@ require_once __DIR__ . '/../../utils/currency_api.php';
 
 header('Content-Type: application/json');
 
-// Get authorization header
-$headers = getallheaders();
+// Get authorization header (case-insensitive check like other endpoints)
+$headers = function_exists('getallheaders') ? getallheaders() : [];
 $token = null;
 
-if (isset($headers['Authorization'])) {
-    $token = str_replace('Bearer ', '', $headers['Authorization']);
+// Case-insensitive header check
+foreach ($headers as $k => $v) {
+    if (strtolower($k) === 'authorization') {
+        $token = preg_replace('/^Bearer\s+/i', '', $v);
+        break;
+    }
 }
+
+// Fallback: check $_SERVER if getallheaders() didn't work
+if (!$token && isset($_SERVER['HTTP_AUTHORIZATION'])) {
+    $token = preg_replace('/^Bearer\s+/i', '', $_SERVER['HTTP_AUTHORIZATION']);
+}
+
 if (!$token) {
     sendError('Authorization token required', 401);
 }
@@ -215,13 +225,9 @@ try {
             ];
         }
         
-        // Check if all cart items are included in the request
-        if (count($requestItemMap) !== count($cartMap)) {
-            $missingProducts = array_diff(array_keys($cartMap), array_keys($requestItemMap));
-            foreach ($missingProducts as $missingId) {
-                $cartValidationErrors[] = "Product ID $missingId is in your cart but not included in checkout";
-            }
-        }
+        // Allow partial checkout - only validate that request items exist in cart
+        // Users can select which items to checkout, so we don't require all cart items
+        // The check above already validates that all request items exist in cart
         
         if (!empty($cartValidationErrors)) {
             $pdo->exec("ROLLBACK");
@@ -405,20 +411,23 @@ try {
         error_log("Branch ID: $branchId");
         error_log("Total Amount: $totalAmount $currency");
         
-        // Log the complete flow: Cart → Order → (Future: Review)
-        error_log("=== COMPLETE FLOW: Cart → Order ===");
-        error_log("User ID: $userId");
-        error_log("Order ID: $orderId");
-        error_log("Cart Items Processed: " . count($cartItems));
-        error_log("Order Items Created: " . count($items));
-        error_log("Branch ID: $branchId");
-        error_log("Total Amount: $totalAmount $currency");
-        
         // ATOMICITY: Cart clearing within same transaction
-        // CONSISTENCY: Clears cart after successful order creation
-        // 9. Clear user's cart after successful order
-        $stmt = $pdo->prepare("DELETE FROM cart WHERE user_id = ? AND branch_id = ?");
-        $stmt->execute([$userId, $branchId]);
+        // CONSISTENCY: Clears only checked-out items from cart (partial checkout support)
+        // 9. Clear only the checked-out items from user's cart (partial checkout support)
+        // Only remove items that were included in this order
+        $cartIdsToRemove = [];
+        foreach ($items as $item) {
+            $productId = (int)$item['product_id'];
+            if (isset($requestItemMap[$productId])) {
+                $cartIdsToRemove[] = $requestItemMap[$productId]['cart_id'];
+            }
+        }
+        
+        if (!empty($cartIdsToRemove)) {
+            $placeholders = implode(',', array_fill(0, count($cartIdsToRemove), '?'));
+            $stmt = $pdo->prepare("DELETE FROM cart WHERE cart_id IN ($placeholders) AND user_id = ?");
+            $stmt->execute(array_merge($cartIdsToRemove, [$userId]));
+        }
         
         // DURABILITY: COMMIT ensures all changes are permanently saved
         // ATOMICITY: All operations (order, items, payment, stock, log, cart) succeed together

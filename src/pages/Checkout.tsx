@@ -145,10 +145,30 @@ function Checkout() {
         const branchJson = branchRes.ok ? await branchRes.json() : null
 
         if (cartJson?.success) {
+          let allItems = cartJson.data.items || []
+          
+          // Filter items based on selected items from cart page
+          const selectedItemsJson = sessionStorage.getItem('checkout_selected_items')
+          if (selectedItemsJson) {
+            try {
+              const selectedCartIds = new Set(JSON.parse(selectedItemsJson).map((id: any) => Number(id)))
+              allItems = allItems.filter((item: any) => selectedCartIds.has(Number(item.cart_id)))
+            } catch (e) {
+              console.error('Failed to parse selected items:', e)
+              // If parsing fails, use all items
+            }
+          }
+          
+          // Recalculate subtotal for filtered items
+          const filteredSubtotal = allItems.reduce((sum: number, item: any) => {
+            const price = item.display_price ?? item.price ?? 0
+            return sum + (Number(price) * Number(item.quantity))
+          }, 0)
+          
           setCart({
-            items: cartJson.data.items || [],
-            subtotal: cartJson.data.total || 0,
-            currency: cartJson.data.items?.[0]?.currency || 'PHP'
+            items: allItems,
+            subtotal: filteredSubtotal,
+            currency: allItems[0]?.currency || cartJson.data.items?.[0]?.currency || 'PHP'
           })
         } else {
           setError('Failed to load cart.')
@@ -277,6 +297,7 @@ function Checkout() {
 
       const res = await fetch(api('/checkout/create-order'), {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -587,6 +608,33 @@ function Checkout() {
                   </div>
                 </div>
               </div>
+
+              {/* Submit button inside form */}
+              <div className="card mb-4 shadow-sm">
+                <div className="card-body">
+                  <button
+                    type="submit"
+                    className="btn btn-primary w-100 btn-lg fw-bold"
+                    disabled={submitting || !cart || cart.items.length === 0}
+                  >
+                    {submitting ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <i className="bi bi-lock-fill me-2"></i>
+                        Complete Order
+                      </>
+                    )}
+                  </button>
+                  <p className="text-center small text-muted mt-2 mb-0">
+                    <i className="bi bi-shield-check me-1"></i>
+                    Secure checkout
+                  </p>
+                </div>
+              </div>
             </form>
           </div>
 
@@ -660,28 +708,6 @@ function Checkout() {
                           </div>
                         </div>
                       )}
-                      <button
-                        type="submit"
-                        className="btn btn-primary w-100 btn-lg fw-bold"
-                        onClick={handleSubmit}
-                        disabled={submitting || !cart || cart.items.length === 0}
-                      >
-                        {submitting ? (
-                          <>
-                            <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                            Processing...
-                          </>
-                        ) : (
-                          <>
-                            <i className="bi bi-lock-fill me-2"></i>
-                            Complete Order
-                          </>
-                        )}
-                      </button>
-                      <p className="text-center small text-muted mt-2 mb-0">
-                        <i className="bi bi-shield-check me-1"></i>
-                        Secure checkout
-                      </p>
                     </div>
                   </>
                 ) : (
