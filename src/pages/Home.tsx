@@ -170,7 +170,7 @@ function Home() {
               >
                 🎮
               </div>
-              <h1 className="display-3 fw-bold mb-4">Welcome to GameStore</h1>
+              <h1 className="display-3 fw-bold mb-4">Welcome to cloud9</h1>
               <p className="lead fs-4 mb-5 opacity-90">
                 Discover the latest gaming products, consoles, and accessories
               </p>

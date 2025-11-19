@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import EditProfileModal from '../components/EditProfileModal'
+import ReviewModal from '../components/ReviewModal'
 import { useCurrency } from '../context/CurrencyContext'
 import { api } from '../api/config'
 import { formatPrice } from '../utils/currency'
@@ -30,6 +31,17 @@ interface Order {
   items_count: number
 }
 
+interface OrderItem {
+  product_id: number
+  product_name: string
+  brand?: string
+  model?: string
+  product_image?: string
+  has_reviewed?: number
+  review_id?: number
+  review_rating?: number
+}
+
 function Profile() {
   const { currency } = useCurrency()
   const [user, setUser] = useState<User | null>(null)
@@ -38,6 +50,10 @@ function Profile() {
   const [activeTab, setActiveTab] = useState<'profile' | 'orders'>('profile')
   const [orders, setOrders] = useState<Order[]>([])
   const [ordersLoading, setOrdersLoading] = useState(false)
+  const [showReviewModal, setShowReviewModal] = useState(false)
+  const [selectedOrderForReview, setSelectedOrderForReview] = useState<number | null>(null)
+  const [orderItemsForReview, setOrderItemsForReview] = useState<OrderItem[]>([])
+  const [loadingOrderDetails, setLoadingOrderDetails] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -113,10 +129,15 @@ function Profile() {
       }
 
       const data = await response.json()
+      console.log('Orders API response:', data) // Debug log
+      
       if (data.success && data.data) {
-        setOrders(data.data.orders || [])
+        const ordersList = data.data.orders || []
+        console.log('Setting orders:', ordersList) // Debug log
+        setOrders(ordersList)
       } else {
         // If response is not successful, set empty array
+        console.warn('Orders response not successful or missing data:', data)
         setOrders([])
       }
     } catch (err) {
@@ -207,6 +228,52 @@ function Profile() {
       window.dispatchEvent(new Event('authStateChanged'))
       navigate('/')
     }
+  }
+
+  const handleReviewClick = async (orderId: number) => {
+    setLoadingOrderDetails(true)
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        navigate('/login')
+        return
+      }
+
+      const response = await fetch(api(`/orders/${orderId}?currency=${encodeURIComponent(currency)}`), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.status === 401) {
+        navigate('/login')
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to load order details')
+      }
+
+      const data = await response.json()
+      if (data.success && data.data && data.data.items) {
+        setOrderItemsForReview(data.data.items)
+        setSelectedOrderForReview(orderId)
+        setShowReviewModal(true)
+      } else {
+        throw new Error('Failed to load order items')
+      }
+    } catch (error) {
+      console.error('Error fetching order details:', error)
+      alert('Failed to load order details. Please try again.')
+    } finally {
+      setLoadingOrderDetails(false)
+    }
+  }
+
+  const handleReviewSubmitted = () => {
+    // Refresh orders to update review status
+    fetchOrders()
   }
 
   if (!user) {
@@ -418,13 +485,32 @@ function Profile() {
                               {getPaymentStatusBadge(order.payment_status || 'pending')}
                             </td>
                             <td>
-                              <Link
-                                to={`/orders/${order.order_id}`}
-                                className="btn btn-sm btn-outline-primary"
-                              >
-                                <i className="bi bi-eye me-1"></i>
-                                View Details
-                              </Link>
+                              <div className="btn-group btn-group-sm" role="group">
+                                <Link
+                                  to={`/orders/${order.order_id}`}
+                                  className="btn btn-outline-primary"
+                                >
+                                  <i className="bi bi-eye me-1"></i>
+                                  View Details
+                                </Link>
+                                {order.status === 'delivered' && (
+                                  <button
+                                    className="btn btn-outline-success"
+                                    onClick={() => handleReviewClick(order.order_id)}
+                                    disabled={loadingOrderDetails}
+                                    title="Review products in this order"
+                                  >
+                                    {loadingOrderDetails ? (
+                                      <span className="spinner-border spinner-border-sm" role="status"></span>
+                                    ) : (
+                                      <>
+                                        <i className="bi bi-star me-1"></i>
+                                        Review
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -445,6 +531,21 @@ function Profile() {
           onHide={() => setShowEditModal(false)}
           user={user}
           onSave={handleEditProfile}
+        />
+      )}
+
+      {/* Review Modal */}
+      {selectedOrderForReview && (
+        <ReviewModal
+          show={showReviewModal}
+          onHide={() => {
+            setShowReviewModal(false)
+            setSelectedOrderForReview(null)
+            setOrderItemsForReview([])
+          }}
+          orderId={selectedOrderForReview}
+          products={orderItemsForReview}
+          onReviewSubmitted={handleReviewSubmitted}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-GameStore (React + TypeScript + Vite + PHP API)
+cloud9 (React + TypeScript + Vite + PHP API)
 
 Prerequisites
 - Node.js 18 or 20 (with npm)

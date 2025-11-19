@@ -244,7 +244,7 @@ function Header() {
       <div className="container">
         <Link to="/" className="navbar-brand text-white fw-bold fs-3 d-flex align-items-center">
           <i className="bi bi-controller me-2" style={{ fontSize: '1.8rem' }}></i>
-          <span style={{ fontFamily: 'Arial, sans-serif', letterSpacing: '1px' }}>GameStore</span>
+          <span style={{ fontFamily: 'Arial, sans-serif', letterSpacing: '1px' }}>cloud9</span>
         </Link>
 
         <button

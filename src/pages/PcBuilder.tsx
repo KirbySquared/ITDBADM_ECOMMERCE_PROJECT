@@ -137,8 +137,8 @@ useEffect(() => {
   }
 
   const handleAddBuildToCart = async () => {
-    if (!selectedProducts.length) {
-      showError('Please select at least one component for your build.')
+    if (selectedProducts.length < 2) {
+      showError('Please select at least 2 components for your build.')
       return
     }
 
@@ -358,6 +358,11 @@ useEffect(() => {
                 <h5 className="card-title">Build Summary</h5>
                 {selectedProducts.length === 0 ? (
                   <p className="text-muted">No components selected yet.</p>
+                ) : selectedProducts.length === 1 ? (
+                  <p className="text-warning">
+                    <i className="bi bi-exclamation-triangle me-1"></i>
+                    Please select at least 2 components to add to cart.
+                  </p>
                 ) : (
                   <>
                     <ul className="list-group mb-3">
@@ -452,7 +457,7 @@ useEffect(() => {
 
                 <button
                   className="btn btn-primary w-100"
-                  disabled={saving || selectedProducts.length === 0}
+                  disabled={saving || selectedProducts.length < 2}
                   onClick={handleAddBuildToCart}
                 >
                   {saving ? 'Adding build…' : 'Add Build to Cart'}

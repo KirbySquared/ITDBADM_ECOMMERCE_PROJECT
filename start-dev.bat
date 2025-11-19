@@ -1,6 +1,6 @@
 @echo off
 REM ========================================
-REM ELECTRONICS STORE - DEVELOPMENT SERVER
+REM cloud9 - DEVELOPMENT SERVER
 REM ========================================
 REM This script starts all development services:
 REM 1. PHP backend server (localhost:8000)
@@ -22,7 +22,7 @@ REM - Access admin panel at http://localhost:5173/admin/login
 REM - Press Ctrl+C to stop all services (cleanup is automatic)
 REM ========================================
 echo ========================================
-echo Electronics Store - Development Server
+echo cloud9 - Development Server
 echo ========================================
 echo.
 

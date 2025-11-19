@@ -85,7 +85,7 @@ function AdminLogin() {
             <div className="login-card">
               <div className="text-center mb-4">
                 <h2 className="text-primary">Admin Login</h2>
-                <p className="text-muted">Electronics Store Control Panel</p>
+                <p className="text-muted">cloud9 Control Panel</p>
               </div>
               
               {error && (

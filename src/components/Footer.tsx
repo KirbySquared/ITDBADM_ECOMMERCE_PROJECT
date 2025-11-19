@@ -6,8 +6,8 @@ function Footer() {
       <div className="container py-5">
         <div className="row g-4">
           <div className="col-lg-4 col-md-6">
-            <h5 className="text-white mb-3">GameStore</h5>
-            <p className="text-light">Your one-stop shop for gaming products and accessories.</p>
+            <h5 className="text-white mb-3">cloud9</h5>
+            <p className="text-light">Your one-stop shop for electronics products and accessories.</p>
           </div>
           
           <div className="col-lg-2 col-md-6">
@@ -33,7 +33,7 @@ function Footer() {
         
         <div className="row">
           <div className="col-12 text-center">
-            <p className="text-light mb-0">&copy; 2025-2026 ITDBADM GameStore. All rights reserved.</p>
+            <p className="text-light mb-0">&copy; 2025-2026 ITDBADM cloud9. All rights reserved.</p>
           </div>
         </div>
       </div>
