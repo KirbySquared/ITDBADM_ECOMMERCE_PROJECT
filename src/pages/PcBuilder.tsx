@@ -15,6 +15,7 @@ interface PcBuilderProduct {
   price: number
   price_php?: number // Base price in PHP
   currency: string
+  stock_quantity?: number // Stock quantity
   primary_image_url?: string
 }
 
@@ -52,8 +53,17 @@ useEffect(() => {
     setError(null)
 
     try {
+      const token = localStorage.getItem('token')
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
       const res = await fetch(api(`/products?pc_builder=1&currency=${currency}`), {
-        credentials: 'include', 
+        credentials: 'include',
+        headers,
       })
       const json: ApiResponse = await res.json()
 
@@ -283,24 +293,29 @@ useEffect(() => {
                     </span>
                   </div>
 
-                  <select
-                    className="form-select mb-2"
-                    value={selected[category.category_id]?.product_id ?? ''}
-                    onChange={e =>
-                      handleSelect(
-                        category.category_id,
-                        e.target.value ? Number(e.target.value) : ''
-                      )
-                    }
-                  >
-                    <option value="">— Choose {category.category_name} —</option>
-                    {category.products.map(p => (
-                      <option key={p.product_id} value={p.product_id}>
-                        {p.product_name}
-                        {p.brand ? ` (${p.brand})` : ''} — {formatPrice(p.price, p.currency)}
-                      </option>
-                    ))}
-                  </select>
+                    <select
+                      className="form-select mb-2"
+                      value={selected[category.category_id]?.product_id ?? ''}
+                      onChange={e =>
+                        handleSelect(
+                          category.category_id,
+                          e.target.value ? Number(e.target.value) : ''
+                        )
+                      }
+                    >
+                      <option value="">— Choose {category.category_name} —</option>
+                      {category.products.map(p => (
+                        <option 
+                          key={p.product_id} 
+                          value={p.product_id}
+                          disabled={(p.stock_quantity ?? 0) <= 0}
+                        >
+                          {p.product_name}
+                          {p.brand ? ` (${p.brand})` : ''} — {formatPrice(p.price, p.currency)}
+                          {(p.stock_quantity ?? 0) <= 0 ? ' (Out of Stock)' : ` (Stock: ${p.stock_quantity})`}
+                        </option>
+                      ))}
+                    </select>
 
                   {selected[category.category_id] && (
                     <div className="d-flex align-items-center mt-2">

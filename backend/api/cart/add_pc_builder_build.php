@@ -102,16 +102,24 @@ try {
             throw new Exception('User not found');
         }
         
-        $userBranchId = $user['branch_id'] ?? 1;
+        $userBranchId = $user['branch_id'] ?? null;
+        if (!$userBranchId) {
+            $userBranchId = 1; // Default to branch 1 if user has no branch
+        }
         
-        // Validate all products exist and have stock
+        // Validate all products exist and have stock in user's branch
         $productIds = array_map(function($item) { return (int)$item['product_id']; }, $items);
         $placeholders = implode(',', array_fill(0, count($productIds), '?'));
         
+        // Get products with stock from user's branch only
         $stmt = $pdo->prepare("
-            SELECT p.product_id, p.product_name, p.price as base_price, pi.stock_qty
+            SELECT 
+                p.product_id, 
+                p.product_name, 
+                p.price as base_price,
+                pi.stock_qty
             FROM products p
-            LEFT JOIN product_inventory pi ON pi.product_id = p.product_id AND pi.branch_id = ?
+            INNER JOIN product_inventory pi ON pi.product_id = p.product_id AND pi.branch_id = ?
             WHERE p.product_id IN ($placeholders)
         ");
         $stmt->execute(array_merge([$userBranchId], $productIds));
