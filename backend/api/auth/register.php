@@ -27,6 +27,22 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/security_headers.php';
+require_once __DIR__ . '/../../utils/rate_limiter.php';
+require_once __DIR__ . '/../../utils/security_audit.php';
+require_once __DIR__ . '/../../utils/input_validator.php';
+
+// Set security headers
+setSecurityHeaders();
+
+// Rate limiting for registration (3 attempts per hour)
+$clientId = getClientIdentifier();
+$rateLimit = checkRateLimit($pdo, $clientId, 'register', 3, 3600);
+if (!$rateLimit['allowed']) {
+    logSecurityEvent($pdo, 'rate_limit_exceeded', 'medium', 
+        "Registration rate limit exceeded", null);
+    sendError('Too many registration attempts. Please try again later.', 429);
+}
 
 // Get request data
 $input = json_decode(file_get_contents('php://input'), true);
@@ -38,25 +54,43 @@ if (!empty($errors)) {
     sendError('Validation failed', 400, $errors);
 }
 
-// Sanitize all input
-$username = sanitizeInput($input['username'] ?? '');
-$firstName = sanitizeInput($input['first_name'] ?? '');
-$lastName = sanitizeInput($input['last_name'] ?? '');
-$email = sanitizeInput($input['email'] ?? '');
-$password = $input['password'] ?? ''; // Don't sanitize password - it's hashed anyway
-
-// Validate username format (3-20 characters, alphanumeric and underscores only)
-if (strlen($username) < 3 || strlen($username) > 20) {
-    sendError('Username must be between 3 and 20 characters', 400);
+// Validate and sanitize all input
+$username = validateString($input['username'] ?? '', 3, 20, '/^[a-zA-Z0-9_]+$/');
+if ($username === false) {
+    sendError('Username must be 3-20 characters and contain only letters, numbers, and underscores', 400);
 }
 
-if (!preg_match('/^[a-zA-Z0-9_]+$/', $username)) {
-    sendError('Username can only contain letters, numbers, and underscores', 400);
+$firstName = validateString($input['first_name'] ?? '', 1, 100);
+if ($firstName === false) {
+    sendError('First name must be 1-100 characters', 400);
 }
 
-// Validate email format
-if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+$lastName = validateString($input['last_name'] ?? '', 1, 100);
+if ($lastName === false) {
+    sendError('Last name must be 1-100 characters', 400);
+}
+
+$email = validateEmail($input['email'] ?? '');
+if ($email === false) {
     sendError('Invalid email format', 400);
+}
+
+$password = $input['password'] ?? '';
+// Validate password strength
+if (strlen($password) < 8) {
+    sendError('Password must be at least 8 characters long', 400);
+}
+if (strlen($password) > 128) {
+    sendError('Password must be less than 128 characters', 400);
+}
+
+// Validate branch_id if provided
+$branchId = null;
+if (isset($input['branch_id']) && !empty($input['branch_id'])) {
+    $branchId = validateInteger($input['branch_id'], 1);
+    if ($branchId === false) {
+        sendError('Invalid branch ID', 400);
+    }
 }
 
 // ATOMICITY: Start transaction - all operations succeed or all fail
@@ -100,11 +134,8 @@ try {
     }
     
     // CONSISTENCY: Validate branch_id exists before INSERT
-    // Validate branch_id if provided
-    $branchId = null;
-    if (isset($input['branch_id']) && !empty($input['branch_id'])) {
-        $branchId = (int)$input['branch_id'];
-        // Verify branch exists
+    // Verify branch exists (branchId already validated above)
+    if ($branchId !== null) {
         $branchCheck = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_id = ?");
         $branchCheck->execute([$branchId]);
         if (!$branchCheck->fetch()) {
@@ -173,6 +204,13 @@ try {
     
     // DURABILITY: COMMIT ensures all changes are permanently saved
     $pdo->exec("COMMIT");
+    
+    // Log successful registration
+    logSecurityEvent($pdo, 'user_registered', 'low', 
+        "New user registered", $userId, [
+            'email' => $email,
+            'username' => $username
+        ]);
     
     sendResponse([
         'user' => $newUser,

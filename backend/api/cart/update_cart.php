@@ -28,6 +28,13 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/security_headers.php';
+require_once __DIR__ . '/../../utils/rate_limiter.php';
+require_once __DIR__ . '/../../utils/security_audit.php';
+require_once __DIR__ . '/../../utils/input_validator.php';
+
+// Set security headers
+setSecurityHeaders();
 
 // Get authorization header
 $headers = getallheaders();
@@ -47,6 +54,15 @@ if (!$userId) {
     sendError('Invalid or expired token', 401);
 }
 
+// Rate limiting for cart operations (20 operations per minute)
+$clientId = getClientIdentifier($userId);
+$rateLimit = checkRateLimit($pdo, $clientId, 'cart_update', 20, 60);
+if (!$rateLimit['allowed']) {
+    logSecurityEvent($pdo, 'rate_limit_exceeded', 'medium', 
+        "Cart update rate limit exceeded", $userId);
+    sendError('Too many cart operations. Please slow down.', 429);
+}
+
 // Get request data
 $input = json_decode(file_get_contents('php://input'), true);
 
@@ -57,11 +73,16 @@ if (!empty($errors)) {
     sendError('Validation failed', 400, $errors);
 }
 
-$cartId = intval($input['cart_id']);
-$quantity = intval($input['quantity']);
+// Validate cart_id (must be positive integer)
+$cartId = validateInteger($input['cart_id'] ?? null, 1);
+if ($cartId === false) {
+    sendError('Invalid cart ID', 400);
+}
 
-if ($quantity <= 0) {
-    sendError('Quantity must be greater than 0', 400);
+// Validate quantity (must be 1-999)
+$quantity = validateInteger($input['quantity'] ?? null, 1, 999);
+if ($quantity === false) {
+    sendError('Quantity must be between 1 and 999', 400);
 }
 
 try {

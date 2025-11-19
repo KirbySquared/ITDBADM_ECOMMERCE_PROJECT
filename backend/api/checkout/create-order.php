@@ -56,8 +56,15 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/currency_api.php';
 require_once __DIR__ . '/../../utils/audit_helper.php';
+require_once __DIR__ . '/../../utils/security_headers.php';
+require_once __DIR__ . '/../../utils/rate_limiter.php';
+require_once __DIR__ . '/../../utils/security_audit.php';
+require_once __DIR__ . '/../../utils/input_validator.php';
 
 header('Content-Type: application/json');
+
+// Set security headers
+setSecurityHeaders();
 
 // Get authorization header (case-insensitive check like other endpoints)
 $headers = function_exists('getallheaders') ? getallheaders() : [];
@@ -90,6 +97,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendError('Method not allowed', 405);
 }
 
+// Rate limiting for checkout (3 attempts per hour)
+$clientId = getClientIdentifier($userId);
+$rateLimit = checkRateLimit($pdo, $clientId, 'checkout', 3, 3600);
+if (!$rateLimit['allowed']) {
+    logSecurityEvent($pdo, 'rate_limit_exceeded', 'medium', 
+        "Checkout rate limit exceeded", $userId);
+    sendError('Too many checkout attempts. Please try again later.', 429);
+}
+
 try {
     $input = json_decode(file_get_contents('php://input'), true);
     
@@ -110,11 +126,75 @@ try {
         sendError('Payment method is required', 400);
     }
     
+    // Validate currency
     $currency = strtoupper(trim($input['currency']));
-    $branchId = (int)$input['fulfillment']['branch_id'];
-    $items = $input['items'];
+    $validCurrencies = ['USD', 'PHP', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD'];
+    if (!in_array($currency, $validCurrencies)) {
+        sendError('Invalid currency code', 400);
+    }
+    
+    // Validate branch ID
+    $branchId = validateInteger($input['fulfillment']['branch_id'], 1);
+    if ($branchId === false) {
+        sendError('Invalid branch ID', 400);
+    }
+    
+    // Validate items array
+    $items = validateArray($input['items'], 1);
+    if ($items === false) {
+        sendError('Items must be a non-empty array', 400);
+    }
+    
+    // Validate each item
+    foreach ($items as $index => $item) {
+        $productId = validateInteger($item['product_id'] ?? null, 1);
+        if ($productId === false) {
+            sendError("Invalid product_id in item $index", 400);
+        }
+        
+        $quantity = validateInteger($item['quantity'] ?? null, 1, 999);
+        if ($quantity === false) {
+            sendError("Invalid quantity in item $index (must be 1-999)", 400);
+        }
+        
+        $unitPrice = validateAmount($item['unit_price'] ?? null, 0);
+        if ($unitPrice === false) {
+            sendError("Invalid unit_price in item $index", 400);
+        }
+        
+        $items[$index]['product_id'] = $productId;
+        $items[$index]['quantity'] = $quantity;
+        $items[$index]['unit_price'] = $unitPrice;
+    }
+    
+    // Validate payment method
     $paymentMethod = $input['payment']['method'];
-    $fulfillmentType = $input['fulfillment']['type'] ?? 'pickup';
+    $validPaymentMethods = ['credit_card', 'debit_card', 'gcash', 'maya', 'bank_transfer', 'cod'];
+    if (!in_array($paymentMethod, $validPaymentMethods)) {
+        sendError('Invalid payment method', 400);
+    }
+    
+    // Validate customer email
+    $customerEmail = validateEmail($input['customer']['email'] ?? '');
+    if ($customerEmail === false) {
+        sendError('Invalid customer email format', 400);
+    }
+    
+    // Validate customer names
+    $customerFirstName = validateString($input['customer']['first_name'] ?? '', 1, 100);
+    if ($customerFirstName === false) {
+        sendError('Invalid customer first name', 400);
+    }
+    
+    $customerLastName = validateString($input['customer']['last_name'] ?? '', 1, 100);
+    if ($customerLastName === false) {
+        sendError('Invalid customer last name', 400);
+    }
+    
+    $fulfillmentType = validateEnum($input['fulfillment']['type'] ?? 'pickup', ['pickup', 'delivery']);
+    if ($fulfillmentType === false) {
+        $fulfillmentType = 'pickup';
+    }
     
     // Validate currency code
     if (!isValidCurrencyCode($currency)) {
@@ -154,13 +234,19 @@ try {
         $shippingAddress = 'Store Pickup';
     }
     
-    // Calculate total amount
+    // Calculate total amount (items are already validated)
     $totalAmount = 0.0;
     foreach ($items as $item) {
-        if (!isset($item['product_id']) || !isset($item['quantity']) || !isset($item['unit_price'])) {
-            sendError('Invalid item data', 400);
-        }
-        $totalAmount += (float)$item['unit_price'] * (int)$item['quantity'];
+        $totalAmount += $item['unit_price'] * $item['quantity'];
+    }
+    
+    // Validate total amount is reasonable
+    if ($totalAmount <= 0) {
+        sendError('Total amount must be greater than 0', 400);
+    }
+    
+    if ($totalAmount > 1000000) { // Max 1 million
+        sendError('Total amount exceeds maximum allowed', 400);
     }
     
     // Apply PC Builder discount if provided
@@ -338,8 +424,13 @@ try {
             $order = $stmt->fetch();
             $currentTotal = (float)$order['total_amount'];
             
+            // Validate discount percent (must be 10 or 20)
+            $discountPercent = validateEnum($input['discount']['percent'] ?? 0, [10, 20]);
+            if ($discountPercent === false) {
+                $discountPercent = 0;
+            }
+            
             // Recalculate discount based on actual total from order_items
-            $discountPercent = isset($input['discount']['percent']) ? (float)$input['discount']['percent'] : 0;
             $actualDiscountAmount = ($currentTotal * $discountPercent) / 100;
             $discountedTotal = $currentTotal - $actualDiscountAmount;
             

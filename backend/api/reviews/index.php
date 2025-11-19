@@ -23,7 +23,16 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/security_headers.php';
+require_once __DIR__ . '/../../utils/rate_limiter.php';
+require_once __DIR__ . '/../../utils/security_audit.php';
+require_once __DIR__ . '/../../utils/input_validator.php';
+
 header('Content-Type: application/json');
+
+// Set security headers
+setSecurityHeaders();
+
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 try {
@@ -163,6 +172,15 @@ try {
         ], 'Reviews fetched successfully');
         
     } elseif ($method === 'POST') {
+        // Rate limiting for review submission (10 reviews per hour)
+        $clientId = getClientIdentifier($userId);
+        $rateLimit = checkRateLimit($pdo, $clientId, 'review_submit', 10, 3600);
+        if (!$rateLimit['allowed']) {
+            logSecurityEvent($pdo, 'rate_limit_exceeded', 'medium', 
+                "Review submission rate limit exceeded", $userId);
+            sendError('Too many review submissions. Please try again later.', 429);
+        }
+        
         // Create a new review with ACID transaction support
         $input = json_decode(file_get_contents('php://input'), true);
         
@@ -170,13 +188,26 @@ try {
             sendError('Product ID and rating are required', 400);
         }
         
-        $productId = (int)$input['product_id'];
-        $rating = (int)$input['rating'];
-        $comment = isset($input['comment']) ? trim($input['comment']) : null;
+        // Validate product_id (must be positive integer)
+        $productId = validateInteger($input['product_id'] ?? null, 1);
+        if ($productId === false) {
+            sendError('Invalid product ID', 400);
+        }
         
-        // Validate rating
-        if ($rating < 1 || $rating > 5) {
+        // Validate rating (must be 1-5)
+        $rating = validateInteger($input['rating'] ?? null, 1, 5);
+        if ($rating === false) {
             sendError('Rating must be between 1 and 5', 400);
+        }
+        
+        // Validate comment (optional, max 1000 characters)
+        $comment = null;
+        if (isset($input['comment']) && !empty(trim($input['comment']))) {
+            $comment = validateString($input['comment'], null, 1000);
+            if ($comment === false) {
+                sendError('Comment must be less than 1000 characters', 400);
+            }
+            $comment = trim($comment);
         }
         
         // ATOMICITY: Start transaction - all operations succeed or all fail

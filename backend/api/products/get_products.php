@@ -6,6 +6,7 @@ error_log("GET params: " . json_encode($_GET));
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/currency_api.php';
+require_once __DIR__ . '/../../utils/input_validator.php';
 header('Content-Type: application/json');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
@@ -54,16 +55,25 @@ try {
   }
   
   // Use user's branch_id if logged in, otherwise use query param (for non-logged-in users or admin override)
-  $branchId = $userBranchId !== null ? $userBranchId : (isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : 0);
-  $limit    = isset($_GET['limit']) ? (int)$_GET['limit'] : 0;
-  $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+  $branchId = $userBranchId !== null ? $userBranchId : (isset($_GET['branch_id']) ? validateInteger($_GET['branch_id'], 0) : 0);
+  if ($branchId === false) {
+    sendError('Invalid branch ID', 400);
+  }
   
-  error_log("Get_Products: branchId = " . $branchId . " (userBranchId: " . ($userBranchId ?? 'null') . "), currency = " . $currency . ", limit = " . $limit);
-
-  // Validate currency code
-  if (!isValidCurrencyCode($currency)) {
+  // Validate limit (0-1000)
+  $limit = isset($_GET['limit']) ? validateInteger($_GET['limit'], 0, 1000) : 0;
+  if ($limit === false) {
+    sendError('Invalid limit (must be 0-1000)', 400);
+  }
+  
+  // Validate currency
+  $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+  $validCurrencies = ['USD', 'PHP', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD'];
+  if (!in_array($currency, $validCurrencies)) {
     sendError('Invalid currency code', 400);
   }
+  
+  error_log("Get_Products: branchId = " . $branchId . " (userBranchId: " . ($userBranchId ?? 'null') . "), currency = " . $currency . ", limit = " . $limit);
 
   // Get exchange rate from API (automatic, always up-to-date)
   $rate = getExchangeRateFromAPI($currency);

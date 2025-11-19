@@ -15,6 +15,7 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/currency_api.php';
+require_once __DIR__ . '/../../utils/input_validator.php';
 
 header('Content-Type: application/json');
 
@@ -57,7 +58,10 @@ $orderId = null;
 // Find order ID in path (e.g., /api/orders/123)
 foreach ($pathParts as $i => $part) {
     if ($part === 'orders' && isset($pathParts[$i + 1]) && is_numeric($pathParts[$i + 1])) {
-        $orderId = intval($pathParts[$i + 1]);
+        $orderId = validateInteger($pathParts[$i + 1], 1);
+        if ($orderId === false) {
+            sendError('Invalid order ID', 400);
+        }
         break;
     }
 }
@@ -68,6 +72,11 @@ try {
         $requestedCurrency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
         
         // Validate currency code
+        $validCurrencies = ['USD', 'PHP', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD'];
+        if (!in_array($requestedCurrency, $validCurrencies)) {
+            sendError('Invalid currency code', 400);
+        }
+        
         if (!isValidCurrencyCode($requestedCurrency)) {
             sendError('Invalid currency code', 400);
         }
@@ -171,14 +180,29 @@ try {
         sendResponse($order, 'Order retrieved successfully');
     } else {
         // List all orders for the user
-        $page = max(1, intval($_GET['page'] ?? 1));
-        $limit = min(50, max(1, intval($_GET['limit'] ?? 20)));
+        // Validate page (1-1000)
+        $page = validateInteger($_GET['page'] ?? 1, 1, 1000);
+        if ($page === false) {
+            sendError('Invalid page number (must be 1-1000)', 400);
+        }
+        
+        // Validate limit (1-50)
+        $limit = validateInteger($_GET['limit'] ?? 20, 1, 50);
+        if ($limit === false) {
+            sendError('Invalid limit (must be 1-50)', 400);
+        }
+        
         $offset = ($page - 1) * $limit;
         
         // Get requested currency (default to PHP)
         $requestedCurrency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
         
         // Validate currency code
+        $validCurrencies = ['USD', 'PHP', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD'];
+        if (!in_array($requestedCurrency, $validCurrencies)) {
+            sendError('Invalid currency code', 400);
+        }
+        
         if (!isValidCurrencyCode($requestedCurrency)) {
             sendError('Invalid currency code', 400);
         }

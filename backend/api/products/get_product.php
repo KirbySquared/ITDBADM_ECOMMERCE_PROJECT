@@ -6,6 +6,7 @@ error_log("GET params: " . json_encode($_GET));
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/currency_api.php';
+require_once __DIR__ . '/../../utils/input_validator.php';
 header('Content-Type: application/json');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
@@ -46,19 +47,26 @@ try {
     error_log("Get_Product: No Authorization header found - showing product regardless of branch");
   }
   
-  $id       = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-  // Use user's branch_id if logged in, otherwise use query param
-  $branchId = $userBranchId !== null ? $userBranchId : (isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : 0);
-  $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+  // Validate product ID
+  $id = validateInteger($_GET['id'] ?? null, 1);
+  if ($id === false) {
+    sendError('Invalid product ID', 400);
+  }
   
-  error_log("Get_Product: id = " . $id . ", branchId = " . $branchId . " (userBranchId: " . ($userBranchId ?? 'null') . "), currency = " . $currency);
-
-  if ($id <= 0) sendError('Invalid product ID', 400);
-
-  // Validate currency code
-  if (!isValidCurrencyCode($currency)) {
+  // Use user's branch_id if logged in, otherwise use query param
+  $branchId = $userBranchId !== null ? $userBranchId : (isset($_GET['branch_id']) ? validateInteger($_GET['branch_id'], 0) : 0);
+  if ($branchId === false) {
+    sendError('Invalid branch ID', 400);
+  }
+  
+  // Validate currency
+  $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+  $validCurrencies = ['USD', 'PHP', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD'];
+  if (!in_array($currency, $validCurrencies)) {
     sendError('Invalid currency code', 400);
   }
+  
+  error_log("Get_Product: id = " . $id . ", branchId = " . $branchId . " (userBranchId: " . ($userBranchId ?? 'null') . "), currency = " . $currency);
 
   // Get exchange rate from API (automatic, always up-to-date)
   $rate = getExchangeRateFromAPI($currency);

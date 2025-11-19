@@ -54,3 +54,5 @@ If you encounter issues:
 2. **API errors**: Check that the route is correctly added in `backend/api/index.php`
 3. **Cart display**: The cart page may need updates to show builds as bundles (this is pending)
 
+
+

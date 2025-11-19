@@ -44,6 +44,10 @@ header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Credentials: true');
 
+// Set security headers for all API responses
+require_once __DIR__ . '/../utils/security_headers.php';
+setSecurityHeaders();
+
 // Handle preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     error_log("OPTIONS request in API index - sending CORS headers");
@@ -224,6 +228,22 @@ switch ($path) {
     case 'reviews':
         if ($method === 'GET' || $method === 'POST') {
             include 'reviews/index.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
+    case 'security/monitor':
+        if ($method === 'GET' || $method === 'POST') {
+            include 'security/monitor.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
+    case 'security/backup':
+        if ($method === 'GET' || $method === 'POST') {
+            include 'security/backup.php';
         } else {
             sendError('Method not allowed', 405);
         }

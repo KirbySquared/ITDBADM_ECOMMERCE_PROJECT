@@ -1,6 +1,14 @@
 <?php
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/security_headers.php';
+require_once __DIR__ . '/../../utils/rate_limiter.php';
+require_once __DIR__ . '/../../utils/security_audit.php';
+require_once __DIR__ . '/../../utils/forensics.php';
+require_once __DIR__ . '/../../utils/input_validator.php';
+
+// Set security headers
+setSecurityHeaders();
 
 // Get request data
 $input = json_decode(file_get_contents('php://input'), true);
@@ -11,9 +19,39 @@ if (!empty($errors)) {
     sendError('Validation failed', 400, $errors);
 }
 
-// Sanitize input
-$email = sanitizeInput($input['email']);
-$password = $input['password'];
+// Validate email format
+$email = validateEmail($input['email'] ?? '');
+if ($email === false) {
+    sendError('Invalid email format', 400);
+}
+
+// Validate password is provided
+$password = $input['password'] ?? '';
+if (empty($password)) {
+    sendError('Password is required', 400);
+}
+
+// Get client identifier for rate limiting
+$clientId = getClientIdentifier();
+
+// Check rate limit: 5 attempts per 15 minutes
+$rateLimit = checkRateLimit($pdo, $clientId, 'login', 5, 900);
+if (!$rateLimit['allowed']) {
+    logSecurityEvent($pdo, 'rate_limit_exceeded', 'high', 
+        "Login rate limit exceeded for $clientId", null, [
+            'email' => $email,
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+        ]);
+    
+    logForensics($pdo, 'rate_limit_exceeded', 
+        "Login rate limit exceeded - possible brute force attack", null, [
+            'email' => $email,
+            'client_id' => $clientId
+        ]);
+    
+    sendError('Too many login attempts. Please try again in ' . 
+        ceil(($rateLimit['reset_at'] ? (strtotime($rateLimit['reset_at']) - time()) : 900) / 60) . ' minutes.', 429);
+}
 
 // Find user by email (now also selecting status and branch info)
 $stmt = $pdo->prepare("
@@ -27,11 +65,39 @@ $stmt->execute([$email]);
 $user = $stmt->fetch();
 
 if (!$user) {
+    // Log failed login attempt
+    logSecurityEvent($pdo, 'login_failed', 'medium', 
+        "Failed login attempt - user not found", null, [
+            'email' => $email,
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+        ]);
+    
+    // Check for suspicious activity
+    $suspicious = detectSuspiciousActivity($pdo, null, $_SERVER['REMOTE_ADDR'] ?? null);
+    if (!empty($suspicious)) {
+        logForensics($pdo, 'suspicious_login_activity', 
+            "Suspicious login activity detected - user not found", null, $suspicious);
+    }
+    
     sendError('Invalid credentials', 401);
 }
 
 // Verify password
 if (!password_verify($password, $user['password_hash'])) {
+    // Log failed login attempt
+    logSecurityEvent($pdo, 'login_failed', 'medium', 
+        "Failed login attempt - invalid password", $user['user_id'], [
+            'email' => $email,
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+        ]);
+    
+    // Check for suspicious activity
+    $suspicious = detectSuspiciousActivity($pdo, $user['user_id'], $_SERVER['REMOTE_ADDR'] ?? null);
+    if (!empty($suspicious)) {
+        logForensics($pdo, 'suspicious_login_activity', 
+            "Suspicious login activity detected - invalid password", $user['user_id'], $suspicious);
+    }
+    
     sendError('Invalid credentials', 401);
 }
 
@@ -50,6 +116,16 @@ try {
     // If updating status fails, still avoid leaking internals to the client
     // You can log $e->getMessage() server-side if desired.
 }
+
+// On successful login, reset rate limit
+resetRateLimit($pdo, $clientId, 'login');
+
+// Log successful login
+logSecurityEvent($pdo, 'login_success', 'low', 
+    "Successful login", $user['user_id'], [
+        'email' => $email,
+        'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+    ]);
 
 // Generate token
 $token = generateToken($user['user_id']);
