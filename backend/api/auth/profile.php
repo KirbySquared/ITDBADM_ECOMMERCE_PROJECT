@@ -154,9 +154,11 @@ try {
     
     // ATOMICITY: Password update within same transaction
     // Handle password update if provided
+    // Hash password with bcrypt - automatically generates unique salt for each password
+    // Using PASSWORD_BCRYPT with cost 12 ensures each password gets a unique hash even if passwords are identical
     if (isset($input['password']) && !empty($input['password'])) {
         $updateFields[] = "password_hash = ?";
-        $params[] = password_hash($input['password'], PASSWORD_DEFAULT);
+        $params[] = password_hash($input['password'], PASSWORD_BCRYPT, ['cost' => 12]);
     }
     
     if (empty($updateFields)) {

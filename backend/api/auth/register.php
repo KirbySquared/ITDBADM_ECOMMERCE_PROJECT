@@ -85,8 +85,9 @@ try {
         sendError('User with this email already exists', 409);
     }
     
-    // Hash password
-    $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+    // Hash password with bcrypt - automatically generates unique salt for each password
+    // Using PASSWORD_BCRYPT with cost 12 ensures each password gets a unique hash even if passwords are identical
+    $hashedPassword = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
     
     // ATOMICITY: User creation within transaction
     // All new registrations default to 'user' role - admins cannot be created via registration
