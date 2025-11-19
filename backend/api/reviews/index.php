@@ -255,13 +255,28 @@ try {
             }
             
             // ATOMICITY: Review INSERT within transaction
-            // Insert review
-            $stmt = $pdo->prepare("
-                INSERT INTO reviews (user_id, product_id, rating, comment)
-                VALUES (?, ?, ?, ?)
-            ");
-            $stmt->execute([$userId, $productId, $rating, $comment]);
-            $reviewId = $pdo->lastInsertId();
+            // Insert or update review using stored procedure
+            require_once __DIR__ . '/../../utils/stored_procedure_helper.php';
+            try {
+                $result = callStoredProcedure($pdo, 'sp_upsert_product_review', [
+                    $userId,
+                    $productId,
+                    $rating,
+                    $comment
+                ]);
+                $reviewId = !empty($result) && isset($result[0]['review_id']) 
+                    ? (int)$result[0]['review_id'] 
+                    : $pdo->lastInsertId();
+            } catch (PDOException $e) {
+                // If stored procedure fails, fall back to direct INSERT
+                error_log('sp_upsert_product_review failed, using direct INSERT: ' . $e->getMessage());
+                $stmt = $pdo->prepare("
+                    INSERT INTO reviews (user_id, product_id, rating, comment)
+                    VALUES (?, ?, ?, ?)
+                ");
+                $stmt->execute([$userId, $productId, $rating, $comment]);
+                $reviewId = $pdo->lastInsertId();
+            }
             
             // DURABILITY: COMMIT ensures all changes are permanently saved
             // Commit transaction

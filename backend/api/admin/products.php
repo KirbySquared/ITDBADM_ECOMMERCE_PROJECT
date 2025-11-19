@@ -191,6 +191,47 @@ try {
                 break;
                 
             case 'PUT':
+                $input = json_decode(file_get_contents('php://input'), true);
+                
+                // Check if this is a stock transfer request
+                if (isset($input['action']) && $input['action'] === 'transfer_stock') {
+                    // Transfer stock between branches using stored procedure
+                    if (!isset($input['from_branch_id']) || !is_numeric($input['from_branch_id'])) {
+                        sendError('From branch ID is required', 400);
+                    }
+                    if (!isset($input['to_branch_id']) || !is_numeric($input['to_branch_id'])) {
+                        sendError('To branch ID is required', 400);
+                    }
+                    if (!isset($input['quantity']) || !is_numeric($input['quantity']) || $input['quantity'] <= 0) {
+                        sendError('Quantity must be greater than zero', 400);
+                    }
+                    
+                    $fromBranchId = (int)$input['from_branch_id'];
+                    $toBranchId = (int)$input['to_branch_id'];
+                    $quantity = (int)$input['quantity'];
+                    
+                    try {
+                        $message = callStoredProcedureMessage($pdo, 'sp_transfer_stock', [
+                            $productIdParam,
+                            $fromBranchId,
+                            $toBranchId,
+                            $quantity,
+                            $userId
+                        ]);
+                        sendResponse(['message' => $message], 'Stock transferred successfully');
+                    } catch (PDOException $e) {
+                        error_log('Stock transfer error: ' . $e->getMessage());
+                        $errorMsg = $e->getMessage();
+                        if (strpos($errorMsg, 'SQLSTATE[45000]') !== false) {
+                            preg_match('/SQLSTATE\[45000\]:\s*(.+)/', $errorMsg, $matches);
+                            $errorMsg = $matches[1] ?? 'Failed to transfer stock';
+                        }
+                        sendError($errorMsg, 500);
+                    }
+                    break;
+                }
+                
+                // Otherwise, handle inventory adjustment
                 // Adjust inventory using stored procedure (for adjustments like damaged items)
                 $input = json_decode(file_get_contents('php://input'), true);
                 

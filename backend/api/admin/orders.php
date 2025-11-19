@@ -758,6 +758,84 @@ try {
             break;
             
         default:
+            // Check for order item management endpoints
+            // POST /api/admin/orders/{id}/items - Add product to order
+            // PUT /api/admin/orders/{id}/items/{item_id} - Update order item quantity
+            
+            $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+            $path = str_replace('/api/admin/orders', '', $path);
+            $path = ltrim($path, '/');
+            $pathParts = explode('/', $path);
+            
+            // POST /api/admin/orders/{id}/items - Add product to order
+            if (count($pathParts) === 2 && $pathParts[1] === 'items' && $method === 'POST' && $orderIdParam) {
+                $input = json_decode(file_get_contents('php://input'), true);
+                
+                if (!isset($input['product_id']) || !is_numeric($input['product_id'])) {
+                    sendError('Product ID is required', 400);
+                }
+                if (!isset($input['quantity']) || !is_numeric($input['quantity']) || $input['quantity'] <= 0) {
+                    sendError('Quantity must be greater than zero', 400);
+                }
+                if (!isset($input['unit_price']) || !is_numeric($input['unit_price']) || $input['unit_price'] < 0) {
+                    sendError('Unit price is required and must be non-negative', 400);
+                }
+                
+                $productId = (int)$input['product_id'];
+                $quantity = (int)$input['quantity'];
+                $unitPrice = (float)$input['unit_price'];
+                
+                try {
+                    $message = callStoredProcedureMessage($pdo, 'sp_add_product_to_order', [
+                        $orderIdParam,
+                        $productId,
+                        $quantity,
+                        $unitPrice,
+                        $userId
+                    ]);
+                    sendResponse(['message' => $message], 'Product added to order successfully');
+                } catch (PDOException $e) {
+                    error_log('Add product to order error: ' . $e->getMessage());
+                    $errorMsg = $e->getMessage();
+                    if (strpos($errorMsg, 'SQLSTATE[45000]') !== false) {
+                        preg_match('/SQLSTATE\[45000\]:\s*(.+)/', $errorMsg, $matches);
+                        $errorMsg = $matches[1] ?? 'Failed to add product to order';
+                    }
+                    sendError($errorMsg, 500);
+                }
+                break;
+            }
+            
+            // PUT /api/admin/orders/{id}/items/{item_id} - Update order item quantity
+            if (count($pathParts) === 3 && $pathParts[1] === 'items' && is_numeric($pathParts[2]) && $method === 'PUT' && $orderIdParam) {
+                $orderItemId = (int)$pathParts[2];
+                $input = json_decode(file_get_contents('php://input'), true);
+                
+                if (!isset($input['quantity']) || !is_numeric($input['quantity']) || $input['quantity'] <= 0) {
+                    sendError('Quantity must be greater than zero', 400);
+                }
+                
+                $quantity = (int)$input['quantity'];
+                
+                try {
+                    $message = callStoredProcedureMessage($pdo, 'sp_update_order_item_quantity', [
+                        $orderItemId,
+                        $quantity,
+                        $userId
+                    ]);
+                    sendResponse(['message' => $message], 'Order item quantity updated successfully');
+                } catch (PDOException $e) {
+                    error_log('Update order item quantity error: ' . $e->getMessage());
+                    $errorMsg = $e->getMessage();
+                    if (strpos($errorMsg, 'SQLSTATE[45000]') !== false) {
+                        preg_match('/SQLSTATE\[45000\]:\s*(.+)/', $errorMsg, $matches);
+                        $errorMsg = $matches[1] ?? 'Failed to update order item quantity';
+                    }
+                    sendError($errorMsg, 500);
+                }
+                break;
+            }
+            
             sendError('Method not allowed', 405);
             break;
     }

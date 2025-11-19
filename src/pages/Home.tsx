@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'   // ✅ added useNavigate
 import { formatPrice } from '../utils/currency'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../hooks/useAuth'
+import { useBranch } from '../context/BranchContext'
 import { api } from '../api/config'
 import './Home.css'
 
@@ -21,10 +22,25 @@ interface Product {
 function Home() {
   const { currency } = useCurrency()
   const { user, loading: authLoading } = useAuth()
+  const { branches } = useBranch()
   // Get user's branch_id from profile - check if it exists (including 0 as valid)
   const userBranchId = user?.branch_id !== undefined && user?.branch_id !== null ? user.branch_id : null
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // Get branch name from user object or branches list
+  const getBranchName = () => {
+    if (user?.branch_name) {
+      return user.branch_name
+    }
+    if (userBranchId !== null && branches.length > 0) {
+      const branch = branches.find(b => b.branch_id === userBranchId)
+      return branch?.branch_name || `Branch #${userBranchId}`
+    }
+    return null
+  }
+  
+  const branchName = getBranchName()
 
   // ✅ search state + navigate
   const navigate = useNavigate()
@@ -222,8 +238,8 @@ function Home() {
               </div>
               <h2 className="display-4 fw-bold mb-3">Featured Products</h2>
               <p className="lead text-muted">
-                {userBranchId != null
-                  ? `Showing featured products for branch #${userBranchId}`
+                {branchName
+                  ? `Showing featured products for ${branchName}`
                   : 'Check out our latest and most popular items'}
               </p>
               <div

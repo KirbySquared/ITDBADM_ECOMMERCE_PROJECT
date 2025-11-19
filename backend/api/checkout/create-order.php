@@ -447,15 +447,37 @@ try {
         
         // ATOMICITY: Payment record creation within same transaction
         // CONSISTENCY: Payment status matches payment method
-        // 4. Create payment record (status: pending initially, will be completed after payment simulation)
+        // 4. Create payment record using stored procedure
         // NOTE: Trigger trg_payments_log_insert will log payment creation to transaction_log
+        require_once __DIR__ . '/../../utils/stored_procedure_helper.php';
         $paymentStatus = ($paymentMethod === 'cod') ? 'pending' : 'pending'; // All start as pending
-        $stmt = $pdo->prepare("
-            INSERT INTO payments (order_id, payment_method, payment_status, amount, currency, transaction_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ");
         $transactionId = 'TXN-' . strtoupper(bin2hex(random_bytes(8)));
-        $stmt->execute([$orderId, $paymentMethod, $paymentStatus, $totalAmount, $currency, $transactionId]);
+        
+        // Use stored procedure to record payment
+        try {
+            $message = callStoredProcedureMessage($pdo, 'sp_record_payment', [
+                $orderId,
+                $paymentMethod,
+                $totalAmount,
+                $currency,
+                $transactionId,
+                $userId
+            ]);
+            // Note: sp_record_payment sets status to 'completed', but we want 'pending' initially
+            // So we'll update it back to pending if needed
+            if ($paymentStatus === 'pending') {
+                $stmt = $pdo->prepare("UPDATE payments SET payment_status = 'pending' WHERE order_id = ?");
+                $stmt->execute([$orderId]);
+            }
+        } catch (PDOException $e) {
+            // If stored procedure fails, fall back to direct INSERT
+            error_log('sp_record_payment failed, using direct INSERT: ' . $e->getMessage());
+            $stmt = $pdo->prepare("
+                INSERT INTO payments (order_id, payment_method, payment_status, amount, currency, transaction_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([$orderId, $paymentMethod, $paymentStatus, $totalAmount, $currency, $transactionId]);
+        }
         
         // ATOMICITY: Currency snapshot creation within same transaction
         // CONSISTENCY: Preserves currency rate at time of order

@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/currency_api.php';
 require_once __DIR__ . '/../../utils/input_validator.php';
+require_once __DIR__ . '/../../utils/stored_procedure_helper.php';
 
 header('Content-Type: application/json');
 
@@ -271,15 +272,46 @@ try {
         $countStmt->execute([$userId]);
         $total = $countStmt->fetchColumn();
         
-        sendResponse([
-            'orders' => $orders,
-            'pagination' => [
-                'page' => $page,
-                'limit' => $limit,
-                'total' => $total,
-                'pages' => ceil($total / $limit)
-            ]
-        ], 'Orders retrieved successfully');
+        // Check if purchase history is requested
+        if (isset($_GET['purchase_history']) && $_GET['purchase_history'] === '1') {
+            // Get purchase history using stored procedure
+            $startDate = $_GET['start_date'] ?? date('Y-m-d', strtotime('-365 days'));
+            $endDate = $_GET['end_date'] ?? date('Y-m-d');
+            
+            // Validate dates
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate)) {
+                sendError('Invalid date format. Use YYYY-MM-DD', 400);
+            }
+            
+            try {
+                $history = callStoredProcedure($pdo, 'sp_get_customer_purchase_history', [
+                    $userId,
+                    $startDate,
+                    $endDate
+                ]);
+                
+                sendResponse([
+                    'purchase_history' => $history,
+                    'date_range' => [
+                        'start_date' => $startDate,
+                        'end_date' => $endDate
+                    ]
+                ], 'Purchase history retrieved successfully');
+            } catch (PDOException $e) {
+                error_log('Purchase history error: ' . $e->getMessage());
+                sendError('Failed to retrieve purchase history: ' . $e->getMessage(), 500);
+            }
+        } else {
+            sendResponse([
+                'orders' => $orders,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'pages' => ceil($total / $limit)
+                ]
+            ], 'Orders retrieved successfully');
+        }
     }
     
 } catch (PDOException $e) {

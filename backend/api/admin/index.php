@@ -76,6 +76,8 @@ if ($path === 'login' && $method === 'POST') {
     include 'products.php';
 } elseif ($path === 'orders' && ($method === 'GET' || $method === 'POST')) {
     include 'orders.php';
+} elseif ($path === 'reports' && $method === 'GET') {
+    include 'reports.php';
 } elseif (preg_match('/^products\/\d+/', $path)) {
     // Parse the path like React Router
     $pathSegments = explode('/', $path);
