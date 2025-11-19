@@ -215,16 +215,13 @@ try {
                         $currency = 'PHP';
                     }
                     
-                    // Get currency rate for conversion
+                    // Get currency rate for conversion from API
+                    require_once __DIR__ . '/../../utils/currency_api.php';
                     $rateToPhp = 1.0; // Default for PHP
                     if ($currency !== 'PHP') {
-                        $curStmt = $pdo->prepare("SELECT rate_to_php FROM currencies WHERE code = ? AND is_active = 1 LIMIT 1");
-                        $curStmt->execute([$currency]);
-                        $curRow = $curStmt->fetch();
-                        if ($curRow) {
-                            $rateToPhp = floatval($curRow['rate_to_php']);
-                        } else {
-                            // If currency not found, default to PHP
+                        $rateToPhp = getExchangeRateFromAPI($currency);
+                        if ($rateToPhp === null) {
+                            // If API fails, default to PHP
                             $currency = 'PHP';
                             $rateToPhp = 1.0;
                         }
@@ -286,16 +283,13 @@ try {
                         $currency = 'PHP';
                     }
                     
-                    // Get currency rate for conversion
+                    // Get currency rate for conversion from API
+                    require_once __DIR__ . '/../../utils/currency_api.php';
                     $rateToPhp = 1.0; // Default for PHP
                     if ($currency !== 'PHP') {
-                        $curStmt = $pdo->prepare("SELECT rate_to_php FROM currencies WHERE code = ? AND is_active = 1 LIMIT 1");
-                        $curStmt->execute([$currency]);
-                        $curRow = $curStmt->fetch();
-                        if ($curRow) {
-                            $rateToPhp = floatval($curRow['rate_to_php']);
-                        } else {
-                            // If currency not found, default to PHP
+                        $rateToPhp = getExchangeRateFromAPI($currency);
+                        if ($rateToPhp === null) {
+                            // If API fails, default to PHP
                             $currency = 'PHP';
                             $rateToPhp = 1.0;
                         }
@@ -579,27 +573,21 @@ try {
             
             // Validate currency and convert price to PHP (base currency)
             $currency = strtoupper($input['currency'] ?? 'PHP');
-            $allowedCurrencies = ['PHP', 'USD', 'KRW'];
+            $allowedCurrencies = ['PHP', 'USD', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD'];
             if (!in_array($currency, $allowedCurrencies)) {
-                sendError('Invalid currency. Allowed: PHP, USD, KRW', 400);
+                sendError('Invalid currency. Allowed: PHP, USD, KRW, JPY, EUR, GBP, CAD, AUD', 400);
             }
             
-            // Get currency rate to convert to PHP
-            // rate_to_php converts FROM PHP TO currency, so to convert FROM currency TO PHP, we divide
+            // Get currency rate from API to convert to PHP
+            require_once __DIR__ . '/../../utils/currency_api.php';
             $priceInPhp = floatval($input['price']);
             if ($currency !== 'PHP') {
-                $curStmt = $pdo->prepare("SELECT rate_to_php FROM currencies WHERE code = ? AND is_active = 1 LIMIT 1");
-                $curStmt->execute([$currency]);
-                $curRow = $curStmt->fetch();
-                if (!$curRow) {
-                    sendError('Invalid or inactive currency', 400);
+                $rate = getExchangeRateFromAPI($currency);
+                if ($rate === null || $rate <= 0) {
+                    sendError('Failed to fetch exchange rate for ' . $currency, 500);
                 }
-                $rate = floatval($curRow['rate_to_php']);
-                if ($rate <= 0) {
-                    sendError('Invalid currency rate', 400);
-                }
-                // Convert from selected currency to PHP: divide by rate_to_php
-                // Example: if 1 PHP = 0.018 USD (rate_to_php = 0.018), then 1 USD = 1/0.018 = 55.56 PHP
+                // Convert from selected currency to PHP: divide by rate
+                // Example: if 1 PHP = 0.018 USD (rate = 0.018), then 1 USD = 1/0.018 = 55.56 PHP
                 $priceInPhp = floatval($input['price']) / $rate;
             }
             
@@ -746,19 +734,13 @@ try {
                     sendError('Invalid currency. Allowed: PHP, USD, KRW', 400);
                 }
                 
-                // Convert price to PHP (base currency)
-                // rate_to_php converts FROM PHP TO currency, so to convert FROM currency TO PHP, we divide
+                // Convert price to PHP (base currency) using API
+                require_once __DIR__ . '/../../utils/currency_api.php';
                 $priceInPhp = floatval($input['price']);
                 if ($currency !== 'PHP') {
-                    $curStmt = $pdo->prepare("SELECT rate_to_php FROM currencies WHERE code = ? AND is_active = 1 LIMIT 1");
-                    $curStmt->execute([$currency]);
-                    $curRow = $curStmt->fetch();
-                    if (!$curRow) {
-                        sendError('Invalid or inactive currency', 400);
-                    }
-                    $rate = floatval($curRow['rate_to_php']);
-                    if ($rate <= 0) {
-                        sendError('Invalid currency rate', 400);
+                    $rate = getExchangeRateFromAPI($currency);
+                    if ($rate === null || $rate <= 0) {
+                        sendError('Failed to fetch exchange rate for ' . $currency, 500);
                     }
                     // Convert from selected currency to PHP: divide by rate_to_php
                     $priceInPhp = floatval($input['price']) / $rate;

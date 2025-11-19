@@ -1,0 +1,4 @@
+# Cache directory for currency rates
+cache/
+*.json
+

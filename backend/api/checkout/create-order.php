@@ -26,6 +26,7 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 
 header('Content-Type: application/json');
 
@@ -76,15 +77,17 @@ try {
     $paymentMethod = $input['payment']['method'];
     $fulfillmentType = $input['fulfillment']['type'] ?? 'pickup';
     
-    // Validate currency exists
-    $stmt = $pdo->prepare("SELECT code, rate_to_php FROM currencies WHERE code = ? AND is_active = 1 LIMIT 1");
-    $stmt->execute([$currency]);
-    $currencyRow = $stmt->fetch();
-    
-    if (!$currencyRow) {
-        sendError('Invalid or inactive currency', 400);
+    // Validate currency code
+    if (!isValidCurrencyCode($currency)) {
+        sendError('Invalid currency code', 400);
     }
-    $rateToPhp = (float)$currencyRow['rate_to_php'];
+    
+    // Get exchange rate from API (automatic, always up-to-date)
+    // rateToPhp is the rate FROM PHP TO currency (e.g., 0.018 for USD means 1 PHP = 0.018 USD)
+    $rateToPhp = getExchangeRateFromAPI($currency);
+    if ($rateToPhp === null) {
+        sendError('Failed to fetch exchange rate for ' . $currency, 500);
+    }
     
     // Validate branch exists
     $stmt = $pdo->prepare("SELECT branch_id, branch_name FROM branches WHERE branch_id = ?");
@@ -130,6 +133,71 @@ try {
     $pdo->exec("START TRANSACTION");
     
     try {
+        // 0. Validate that items in request match items in user's cart (same user_id, branch_id, products)
+        // This ensures cart → checkout → order flow is connected
+        $cartValidationErrors = [];
+        $cartItems = [];
+        
+        // Get all items from user's cart for this branch
+        $stmt = $pdo->prepare("
+            SELECT cart_id, product_id, quantity 
+            FROM cart 
+            WHERE user_id = ? AND branch_id = ?
+        ");
+        $stmt->execute([$userId, $branchId]);
+        $cartItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (empty($cartItems)) {
+            $pdo->exec("ROLLBACK");
+            sendError('Cart is empty. Please add items to cart before checkout.', 400);
+        }
+        
+        // Create a map of cart items for quick lookup
+        $cartMap = [];
+        foreach ($cartItems as $cartItem) {
+            $key = (int)$cartItem['product_id'];
+            $cartMap[$key] = [
+                'cart_id' => (int)$cartItem['cart_id'],
+                'quantity' => (int)$cartItem['quantity']
+            ];
+        }
+        
+        // Validate that all items in request exist in cart with matching quantities
+        $requestItemMap = [];
+        foreach ($items as $item) {
+            $productId = (int)$item['product_id'];
+            $quantity = (int)$item['quantity'];
+            
+            if (!isset($cartMap[$productId])) {
+                $cartValidationErrors[] = "Product ID $productId is not in your cart";
+                continue;
+            }
+            
+            if ($cartMap[$productId]['quantity'] !== $quantity) {
+                $cartValidationErrors[] = "Quantity mismatch for product ID $productId. Cart: {$cartMap[$productId]['quantity']}, Request: $quantity";
+                continue;
+            }
+            
+            $requestItemMap[$productId] = [
+                'cart_id' => $cartMap[$productId]['cart_id'],
+                'quantity' => $quantity,
+                'item_data' => $item
+            ];
+        }
+        
+        // Check if all cart items are included in the request
+        if (count($requestItemMap) !== count($cartMap)) {
+            $missingProducts = array_diff(array_keys($cartMap), array_keys($requestItemMap));
+            foreach ($missingProducts as $missingId) {
+                $cartValidationErrors[] = "Product ID $missingId is in your cart but not included in checkout";
+            }
+        }
+        
+        if (!empty($cartValidationErrors)) {
+            $pdo->exec("ROLLBACK");
+            sendError('Cart validation failed: ' . implode('; ', $cartValidationErrors), 400);
+        }
+        
         // 1. Validate stock availability BEFORE creating order
         $stockErrors = [];
         foreach ($items as $item) {
@@ -170,18 +238,23 @@ try {
         $stmt->execute([$userId, $totalAmount, $currency, $shippingAddress, $branchId]);
         $orderId = $pdo->lastInsertId();
         
-        // 3. Create order items
+        // 3. Create order items (connected to cart via cart_id tracking)
+        // Each order_item corresponds to a cart item, maintaining the cart → order connection
         foreach ($items as $item) {
             $productId = (int)$item['product_id'];
             $quantity = (int)$item['quantity'];
             $unitPrice = (float)$item['unit_price'];
             $subtotal = $unitPrice * $quantity;
+            $cartId = isset($requestItemMap[$productId]) ? $requestItemMap[$productId]['cart_id'] : null;
             
             $stmt = $pdo->prepare("
                 INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
                 VALUES (?, ?, ?, ?, ?)
             ");
             $stmt->execute([$orderId, $productId, $quantity, $unitPrice, $subtotal]);
+            
+            // Log the cart → order connection for traceability
+            error_log("Order Item Created: order_id=$orderId, product_id=$productId, quantity=$quantity, cart_id=" . ($cartId ?? 'N/A') . ", user_id=$userId");
         }
         
         // 4. Create payment record (status: pending initially, will be completed after payment simulation)
@@ -193,7 +266,8 @@ try {
         $transactionId = 'TXN-' . strtoupper(bin2hex(random_bytes(8)));
         $stmt->execute([$orderId, $paymentMethod, $paymentStatus, $totalAmount, $currency, $transactionId]);
         
-        // 5. Create order currency snapshot (use INSERT IGNORE to prevent duplicate key errors)
+        // 5. Create order currency snapshot (snapshot the rate at time of order)
+        // This preserves the rate used for the order even if rates change later
         $stmt = $pdo->prepare("
             INSERT IGNORE INTO order_currency_snapshots (order_id, currency_code, rate_to_php)
             VALUES (?, ?, ?)
@@ -252,7 +326,7 @@ try {
             }
         }
         
-        // 8. Log transaction
+        // 8. Log transaction (includes cart connection info)
         $logMeta = json_encode([
             'order_id' => $orderId,
             'currency' => $currency,
@@ -260,7 +334,10 @@ try {
             'total_amount' => $totalAmount,
             'payment_method' => $paymentMethod,
             'branch_id' => $branchId,
-            'items_count' => count($items)
+            'items_count' => count($items),
+            'cart_items_processed' => count($cartItems),
+            'user_id' => $userId,
+            'flow' => 'cart → checkout → order'
         ]);
         
         $stmt = $pdo->prepare("
@@ -268,6 +345,15 @@ try {
             VALUES ('order', ?, 'created', ?, ?, NOW())
         ");
         $stmt->execute([$orderId, $logMeta, $userId]);
+        
+        // Log the complete flow: Cart → Order → (Future: Review)
+        error_log("=== COMPLETE FLOW: Cart → Order ===");
+        error_log("User ID: $userId");
+        error_log("Order ID: $orderId");
+        error_log("Cart Items Processed: " . count($cartItems));
+        error_log("Order Items Created: " . count($items));
+        error_log("Branch ID: $branchId");
+        error_log("Total Amount: $totalAmount $currency");
         
         // 9. Clear user's cart after successful order
         $stmt = $pdo->prepare("DELETE FROM cart WHERE user_id = ? AND branch_id = ?");

@@ -11,6 +11,7 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 
 header('Content-Type: application/json');
 
@@ -39,16 +40,16 @@ try {
     $input = json_decode(file_get_contents('php://input'), true);
     $currency = strtoupper(trim($input['currency'] ?? 'PHP'));
     
-    // Validate currency exists and is active
-    $stmt = $pdo->prepare("SELECT code, rate_to_php FROM currencies WHERE code = ? AND is_active = 1 LIMIT 1");
-    $stmt->execute([$currency]);
-    $currencyRow = $stmt->fetch();
-    
-    if (!$currencyRow) {
-        sendError('Invalid or inactive currency', 400);
+    // Validate currency code
+    if (!isValidCurrencyCode($currency)) {
+        sendError('Invalid currency code', 400);
     }
     
-    $rateToPhp = (float)$currencyRow['rate_to_php'];
+    // Get exchange rate from API (automatic, always up-to-date)
+    $rateToPhp = getExchangeRateFromAPI($currency);
+    if ($rateToPhp === null) {
+        sendError('Failed to fetch exchange rate for ' . $currency, 500);
+    }
     
     // Generate unique lock ID
     $lockId = bin2hex(random_bytes(16));

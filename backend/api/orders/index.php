@@ -68,16 +68,38 @@ try {
             sendError('Order not found or access denied', 404);
         }
         
-        // Get order items with product details and images
+        // Get order items with product details, images, and review status
+        // This connects: Cart → Order → Review (showing if user reviewed each product)
         $stmt = $pdo->prepare("
-            SELECT oi.*, p.product_name, p.brand, p.model,
-                   (SELECT image_url FROM product_images WHERE product_id = p.product_id AND is_primary = TRUE LIMIT 1) as product_image
+            SELECT 
+                oi.*, 
+                p.product_id,
+                p.product_name, 
+                p.brand, 
+                p.model,
+                (SELECT image_url FROM product_images WHERE product_id = p.product_id AND is_primary = TRUE LIMIT 1) as product_image,
+                -- Check if user has reviewed this product (connects order → review)
+                CASE 
+                    WHEN EXISTS (
+                        SELECT 1 FROM reviews r 
+                        WHERE r.product_id = p.product_id 
+                        AND r.user_id = ?
+                    ) THEN 1
+                    ELSE 0
+                END AS has_reviewed,
+                -- Get review details if exists
+                (SELECT r.review_id FROM reviews r 
+                 WHERE r.product_id = p.product_id AND r.user_id = ? 
+                 LIMIT 1) AS review_id,
+                (SELECT r.rating FROM reviews r 
+                 WHERE r.product_id = p.product_id AND r.user_id = ? 
+                 LIMIT 1) AS review_rating
             FROM order_items oi 
             LEFT JOIN products p ON oi.product_id = p.product_id 
             WHERE oi.order_id = ?
             ORDER BY oi.order_item_id ASC
         ");
-        $stmt->execute([$orderId]);
+        $stmt->execute([$userId, $userId, $userId, $orderId]);
         $order['items'] = $stmt->fetchAll();
         
         // Get payment details if exists

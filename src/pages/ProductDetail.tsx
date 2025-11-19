@@ -36,8 +36,37 @@ type Product = {
   display_price?: number
   primary_image_url?: string
   stock_quantity?: number
+  sold_count?: number
   category_name?: string
   images?: ProductImage[]
+}
+
+type Review = {
+  review_id: number
+  user_id: number
+  product_id: number
+  rating: number
+  comment: string | null
+  created_at: string
+  username?: string
+  email?: string
+  first_name?: string
+  last_name?: string
+  verified_purchase?: number
+  purchase_quantity?: number
+  first_purchase_date?: string | null
+}
+
+type ReviewsData = {
+  reviews: Review[]
+  summary: {
+    total_reviews: number
+    average_rating: number
+    rating_distribution: { [key: number]: number }
+    rating_percentages: { [key: number]: number }
+    verified_purchases?: number
+    total_purchases_by_reviewers?: number
+  }
 }
 
 export default function ProductDetail() {
@@ -54,6 +83,8 @@ export default function ProductDetail() {
   const [addingToCart, setAddingToCart] = useState(false)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [reviews, setReviews] = useState<ReviewsData | null>(null)
+  const [reviewsLoading, setReviewsLoading] = useState(false)
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -97,6 +128,48 @@ export default function ProductDetail() {
     }
     // Re-run when branch or currency changes
   }, [id, currency, userBranchId, authLoading])
+
+  // Fetch reviews for the product
+  useEffect(() => {
+    const fetchReviews = async () => {
+      if (!id || !product) return
+      
+      try {
+        setReviewsLoading(true)
+        const url = api(`/reviews?product_id=${encodeURIComponent(id)}`)
+        const res = await fetch(url, { credentials: 'include' })
+        
+        if (!res.ok) {
+          throw new Error('Failed to fetch reviews')
+        }
+        
+        const json = await res.json()
+        if (json?.success === false) {
+          throw new Error(json?.message || 'Failed to fetch reviews')
+        }
+        
+        setReviews(json?.data || null)
+      } catch (e: any) {
+        console.error('Failed to fetch reviews:', e)
+        // Don't show error to user, just set empty reviews
+        setReviews({
+          reviews: [],
+          summary: {
+            total_reviews: 0,
+            average_rating: 0,
+            rating_distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+            rating_percentages: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }
+          }
+        })
+      } finally {
+        setReviewsLoading(false)
+      }
+    }
+
+    if (product?.product_id) {
+      fetchReviews()
+    }
+  }, [id, product?.product_id])
 
   // Reset quantity when product changes or when it exceeds max
   // This must be before any early returns to follow Rules of Hooks
@@ -367,6 +440,28 @@ export default function ProductDetail() {
 
           <p className="mt-3">{product.description || 'No description provided.'}</p>
 
+          {/* Stock and Sales Information */}
+          <div className="mt-3 mb-3 p-3 bg-light rounded">
+            <div className="row g-3">
+              <div className="col-6">
+                <div className="d-flex flex-column">
+                  <span className="text-muted small">Sold</span>
+                  <span className="fw-bold fs-5 text-success">
+                    {product.sold_count ?? 0}
+                  </span>
+                </div>
+              </div>
+              <div className="col-6">
+                <div className="d-flex flex-column">
+                  <span className="text-muted small">In Stock</span>
+                  <span className={`fw-bold fs-5 ${availableStock > 0 ? 'text-primary' : 'text-danger'}`}>
+                    {availableStock}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="mt-4">
             <div className="mb-3">
               <label htmlFor="quantity" className="form-label">
@@ -428,6 +523,168 @@ export default function ProductDetail() {
                 )}
               </button>
               <Link to="/products" className="btn btn-outline-secondary">Back to Products</Link>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Reviews Section */}
+      <div className="row mt-5">
+        <div className="col-12">
+          <div className="card">
+            <div className="card-body">
+              <h3 className="card-title mb-4">Customer Reviews</h3>
+              
+              {reviewsLoading ? (
+                <div className="text-center py-4">
+                  <div className="spinner-border text-primary" role="status">
+                    <span className="visually-hidden">Loading reviews...</span>
+                  </div>
+                </div>
+              ) : reviews && reviews.summary.total_reviews > 0 ? (
+                <>
+                  {/* Average Rating and Distribution */}
+                  <div className="row mb-4">
+                    <div className="col-md-4 text-center mb-3 mb-md-0">
+                      <div className="d-flex flex-column align-items-center">
+                        <div className="display-4 fw-bold text-primary mb-2">
+                          {reviews.summary.average_rating.toFixed(1)}
+                        </div>
+                        <div className="mb-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <i
+                              key={star}
+                              className={`bi ${
+                                star <= Math.round(reviews.summary.average_rating)
+                                  ? 'bi-star-fill text-warning'
+                                  : 'bi-star text-muted'
+                              }`}
+                              style={{ fontSize: '1.2rem' }}
+                            />
+                          ))}
+                        </div>
+                        <div className="text-muted small">
+                          Based on {reviews.summary.total_reviews}{' '}
+                          {reviews.summary.total_reviews === 1 ? 'review' : 'reviews'}
+                        </div>
+                        {reviews.summary.verified_purchases !== undefined && reviews.summary.verified_purchases > 0 && (
+                          <div className="text-success small mt-1">
+                            <i className="bi bi-check-circle-fill me-1"></i>
+                            {reviews.summary.verified_purchases} verified {reviews.summary.verified_purchases === 1 ? 'purchase' : 'purchases'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="col-md-8">
+                      <div className="rating-distribution">
+                        {[5, 4, 3, 2, 1].map((rating) => {
+                          const count = reviews.summary.rating_distribution[rating] || 0
+                          const percentage = reviews.summary.rating_percentages[rating] || 0
+                          
+                          return (
+                            <div key={rating} className="d-flex align-items-center">
+                              <div className="text-end me-2" style={{ width: '35px' }}>
+                                <span className="small fw-bold">{rating}</span>
+                                <i className="bi bi-star-fill text-warning ms-1" style={{ fontSize: '0.75rem' }}></i>
+                              </div>
+                              <div className="flex-grow-1 me-2">
+                                <div className="progress">
+                                  <div
+                                    className="progress-bar bg-warning"
+                                    role="progressbar"
+                                    style={{ width: `${percentage}%` }}
+                                    aria-valuenow={percentage}
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                  >
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-muted small" style={{ width: '40px', textAlign: 'right', fontSize: '0.85rem' }}>
+                                {count}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <hr className="my-4" />
+
+                  {/* Individual Reviews */}
+                  <div className="reviews-list">
+                    <h5 className="mb-3">All Reviews</h5>
+                    {reviews.reviews.map((review) => (
+                      <div key={review.review_id} className="border-bottom pb-3 mb-3">
+                        <div className="d-flex justify-content-between align-items-start mb-2">
+                          <div className="flex-grow-1">
+                            <div className="d-flex align-items-center gap-2 mb-1">
+                              <span className="fw-bold">
+                                {review.first_name && review.last_name
+                                  ? `${review.first_name} ${review.last_name}`
+                                  : review.username || review.email || 'Anonymous User'}
+                              </span>
+                              {review.verified_purchase === 1 && (
+                                <span className="badge bg-success" title="Verified Purchase">
+                                  <i className="bi bi-check-circle-fill me-1"></i>
+                                  Verified Purchase
+                                </span>
+                              )}
+                              {review.purchase_quantity && review.purchase_quantity > 0 && (
+                                <span className="text-muted small">
+                                  ({review.purchase_quantity} {review.purchase_quantity === 1 ? 'purchase' : 'purchases'})
+                                </span>
+                              )}
+                            </div>
+                            <div className="d-flex align-items-center mb-1">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <i
+                                  key={star}
+                                  className={`bi ${
+                                    star <= review.rating
+                                      ? 'bi-star-fill text-warning'
+                                      : 'bi-star text-muted'
+                                  }`}
+                                  style={{ fontSize: '0.9rem' }}
+                                />
+                              ))}
+                              <span className="ms-2 text-muted small">{review.rating}/5</span>
+                            </div>
+                          </div>
+                          <div className="text-muted small text-end">
+                            <div>
+                              {new Date(review.created_at).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              })}
+                            </div>
+                            {review.first_purchase_date && (
+                              <div className="text-muted" style={{ fontSize: '0.75rem' }}>
+                                Purchased: {new Date(review.first_purchase_date).toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric'
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {review.comment && (
+                          <p className="mb-0 text-muted mt-2">{review.comment}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-4 text-muted">
+                  <i className="bi bi-chat-left-text fs-1 d-block mb-2"></i>
+                  <p className="mb-0">No reviews yet. Be the first to review this product!</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

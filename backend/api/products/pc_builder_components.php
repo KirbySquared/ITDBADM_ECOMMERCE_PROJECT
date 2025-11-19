@@ -3,6 +3,7 @@
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
@@ -15,14 +16,16 @@ try {
     // Get currency from query parameter, default to PHP
     $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
     
-    // Validate currency and get conversion rate
-    $curStmt = $pdo->prepare("SELECT code, rate_to_php FROM currencies WHERE code = ? AND is_active = 1 LIMIT 1");
-    $curStmt->execute([$currency]);
-    $curRow = $curStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$curRow) {
-        sendError('Invalid or inactive currency', 400);
+    // Validate currency code
+    if (!isValidCurrencyCode($currency)) {
+        sendError('Invalid currency code', 400);
     }
-    $rateToPhp = (float)$curRow['rate_to_php'];
+    
+    // Get exchange rate from API (automatic, always up-to-date)
+    $rateToPhp = getExchangeRateFromAPI($currency);
+    if ($rateToPhp === null) {
+        sendError('Failed to fetch exchange rate for ' . $currency, 500);
+    }
     
     // Adjust these to match the rows in your `categories` table
     $pcCategories = [

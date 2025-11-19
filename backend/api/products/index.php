@@ -5,6 +5,7 @@ error_log("GET params: " . json_encode($_GET));
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 
 header('Content-Type: application/json');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -54,14 +55,19 @@ try {
   
   error_log("Products/Index: branchId = " . $branchId . " (userBranchId: " . ($userBranchId ?? 'null') . "), id = " . $id . ", currency = " . $currency . ", limit = " . $limit);
 
-  // validate currency + get rate
-  $curStmt = $pdo->prepare("SELECT code, rate_to_php FROM currencies WHERE code = ? AND is_active = 1 LIMIT 1");
-  $curStmt->execute([$currency]);
-  $curRow = $curStmt->fetch(PDO::FETCH_ASSOC);
-  if (!$curRow) sendError('Invalid or inactive currency', 400);
-  $rateToPhp = (float)$curRow['rate_to_php'];
+  // Validate currency code
+  if (!isValidCurrencyCode($currency)) {
+    sendError('Invalid currency code', 400);
+  }
+
+  // Get exchange rate from API (automatic, always up-to-date)
+  $rateToPhp = getExchangeRateFromAPI($currency);
+  if ($rateToPhp === null) {
+    sendError('Failed to fetch exchange rate for ' . $currency, 500);
+  }
 
   $base = 'price'; // base PHP price column
+  // Convert from PHP to target currency: PHP * rate = Target Currency
   $rateSql = ($currency === 'PHP') ? "p.$base" : "ROUND(p.$base * $rateToPhp, 2)";
 
   // ---------------- SINGLE PRODUCT ----------------

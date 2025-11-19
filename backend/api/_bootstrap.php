@@ -57,10 +57,11 @@ if (!$pdo) {
   }
 }
 
-// Small helper: ensure currency exists & active
+// Small helper: ensure currency is valid (now uses API, not database)
 function ensure_currency(PDO $pdo, string $code) {
-  $stmt = $pdo->prepare("SELECT code FROM currencies WHERE code = ? AND is_active = 1");
-  $stmt->execute([$code]);
-  $row = $stmt->fetch();
-  if (!$row) bad(400, "Currency $code not found or inactive.");
+  // Validate currency code instead of checking database
+  $supportedCurrencies = ['PHP', 'USD', 'KRW', 'JPY', 'EUR', 'GBP', 'CAD', 'AUD'];
+  if (!in_array(strtoupper($code), $supportedCurrencies)) {
+    bad(400, "Currency $code is not supported.");
+  }
 }

@@ -213,6 +213,14 @@ switch ($path) {
         }
         break;
         
+    case 'reviews':
+        if ($method === 'GET' || $method === 'POST') {
+            include 'reviews/index.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
     case 'admin':
     case 'admin/login':
     case 'admin/check_auth':

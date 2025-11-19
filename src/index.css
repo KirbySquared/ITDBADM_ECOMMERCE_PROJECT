@@ -1,8 +1,10 @@
 /* Bootstrap-compatible base styles */
-:root {
+body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   line-height: 1.6;
   font-weight: 400;
+  margin: 0;
+  padding: 0;
 }
 
 /* Custom button styles that work with Bootstrap */

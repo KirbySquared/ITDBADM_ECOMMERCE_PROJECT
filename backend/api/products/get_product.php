@@ -5,6 +5,7 @@ error_log("GET params: " . json_encode($_GET));
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 header('Content-Type: application/json');
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
@@ -54,13 +55,19 @@ try {
 
   if ($id <= 0) sendError('Invalid product ID', 400);
 
-  $cur = $pdo->prepare("SELECT code, rate_to_php FROM currencies WHERE code=? AND is_active=1 LIMIT 1");
-  $cur->execute([$currency]);
-  $row = $cur->fetch(PDO::FETCH_ASSOC);
-  if (!$row) sendError('Invalid or inactive currency', 400);
-  $rate = (float)$row['rate_to_php'];
+  // Validate currency code
+  if (!isValidCurrencyCode($currency)) {
+    sendError('Invalid currency code', 400);
+  }
+
+  // Get exchange rate from API (automatic, always up-to-date)
+  $rate = getExchangeRateFromAPI($currency);
+  if ($rate === null) {
+    sendError('Failed to fetch exchange rate for ' . $currency, 500);
+  }
 
   $base = 'price';
+  // Convert from PHP to target currency: PHP * rate = Target Currency
   $rateSql = ($currency === 'PHP') ? "p.$base" : "ROUND(p.$base * $rate, 2)";
   
   // If user is logged in, start from product_inventory filtered by branch_id, then join to products
@@ -72,7 +79,12 @@ try {
              p.$base AS price_php, ? AS currency, $rateSql AS display_price,
              pi_img.image_url AS primary_image_url,
              pi.stock_qty AS stock_quantity,
-             c.category_name, p.created_at
+             c.category_name, p.created_at,
+             (SELECT COALESCE(SUM(oi.quantity), 0)
+              FROM order_items oi
+              INNER JOIN orders ord ON oi.order_id = ord.order_id
+              INNER JOIN payments pay ON pay.order_id = ord.order_id
+              WHERE oi.product_id = p.product_id AND pay.payment_status = 'completed') AS sold_count
       FROM product_inventory pi
       INNER JOIN products p ON pi.product_id = p.product_id
       LEFT JOIN categories c ON c.category_id = p.category_id
@@ -93,7 +105,12 @@ try {
              p.$base AS price_php, ? AS currency, $rateSql AS display_price,
              pi_img.image_url AS primary_image_url,
              COALESCE(SUM(pi.stock_qty), 0) AS stock_quantity,
-             c.category_name, p.created_at
+             c.category_name, p.created_at,
+             (SELECT COALESCE(SUM(oi.quantity), 0)
+              FROM order_items oi
+              INNER JOIN orders o ON oi.order_id = o.order_id
+              INNER JOIN payments pay ON pay.order_id = o.order_id
+              WHERE oi.product_id = p.product_id AND pay.payment_status = 'completed') AS sold_count
       FROM products p
       LEFT JOIN categories c ON c.category_id = p.category_id
       LEFT JOIN product_inventory pi ON pi.product_id = p.product_id

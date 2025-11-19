@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 
 header('Content-Type: application/json');
 
@@ -35,14 +36,16 @@ $userBranchId = $user['branch_id'] ?? null;
 $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
 
 try {
-    // Get currency rate for conversion
-    $cur = $pdo->prepare("SELECT code, rate_to_php FROM currencies WHERE code=? AND is_active=1 LIMIT 1");
-    $cur->execute([$currency]);
-    $row = $cur->fetch(PDO::FETCH_ASSOC);
-    if (!$row) {
-        sendError('Invalid or inactive currency', 400);
+    // Validate currency code
+    if (!isValidCurrencyCode($currency)) {
+        sendError('Invalid currency code', 400);
     }
-    $rate = (float)$row['rate_to_php'];
+    
+    // Get exchange rate from API (automatic, always up-to-date)
+    $rate = getExchangeRateFromAPI($currency);
+    if ($rate === null) {
+        sendError('Failed to fetch exchange rate for ' . $currency, 500);
+    }
     
     $base = 'price';
     $rateSql = ($currency === 'PHP') ? "p.$base" : "ROUND(p.$base * $rate, 2)";
