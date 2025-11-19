@@ -44,3 +44,4 @@ function getAuditUserId($pdo) {
     return $result && isset($result['audit_user_id']) ? (int)$result['audit_user_id'] : null;
 }
 
+
