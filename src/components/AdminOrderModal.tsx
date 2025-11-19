@@ -203,10 +203,17 @@ function AdminOrderModal({ show, onHide, order, onSave }: AdminOrderModalProps) 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
+    setFormData(prev => {
+      const updated = {
+        ...prev,
+        [name]: value
+      }
+      // If currency changes and there are no items, ensure it's updated
+      if (name === 'currency' && orderItems.length === 0) {
+        // Currency can be freely changed when no items
+      }
+      return updated
+    })
   }
 
   // Calculate total amount from order items
@@ -256,13 +263,28 @@ function AdminOrderModal({ show, onHide, order, onSave }: AdminOrderModalProps) 
 
   // Remove product from order
   const removeProductFromOrder = (productId: number) => {
-    setOrderItems(prev => prev.filter(item => item.product_id !== productId))
+    setOrderItems(prev => {
+      const updated = prev.filter(item => item.product_id !== productId)
+      // If all items are removed, reset currency to default
+      if (updated.length === 0) {
+        setFormData(prevForm => ({
+          ...prevForm,
+          currency: 'PHP'
+        }))
+      }
+      return updated
+    })
   }
 
   // Clear all order items (useful when changing currency)
   const clearOrderItems = () => {
     setOrderItems([])
     setError(null)
+    // Reset currency to default when clearing items
+    setFormData(prev => ({
+      ...prev,
+      currency: 'PHP'
+    }))
   }
 
   // Update product quantity

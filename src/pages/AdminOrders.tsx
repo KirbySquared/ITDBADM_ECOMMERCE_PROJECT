@@ -188,8 +188,40 @@ function AdminOrders() {
 
       const data = await response.json()
       if (data.success) {
-        await fetchOrders() // Refresh the orders list
         setShowCreateModal(false)
+        
+        // Refresh the orders list to get updated currency
+        setLoading(true)
+        try {
+          const params = new URLSearchParams({
+            page: currentPage.toString(),
+            limit: '10',
+            ...(searchTerm && { search: searchTerm }),
+            ...(statusFilter !== 'all' && { status: statusFilter }),
+            ...(dateFrom && { date_from: dateFrom }),
+            ...(dateTo && { date_to: dateTo })
+          })
+
+          const refreshResponse = await fetch(`http://localhost:8000/api/admin/orders?${params}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          })
+
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json()
+            if (refreshData.success) {
+              setOrders(refreshData.data.orders)
+              setTotalPages(refreshData.data.pagination.pages)
+            }
+          }
+        } catch (refreshErr) {
+          console.error('Failed to refresh orders:', refreshErr)
+          await fetchOrders()
+        } finally {
+          setLoading(false)
+        }
       } else {
         throw new Error(data.message || 'Failed to create order')
       }
@@ -225,13 +257,60 @@ function AdminOrders() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to update order')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || 'Failed to update order')
       }
 
       const data = await response.json()
       if (data.success) {
-        await fetchOrders() // Refresh the orders list
+        // Close modal first
         setShowEditOrderModal(false)
+        const editedOrderId = selectedOrder.order_id
+        
+        // Refresh the orders list to get updated currency
+        // Use a fresh fetch to ensure we get updated data
+        setLoading(true)
+        try {
+          const params = new URLSearchParams({
+            page: currentPage.toString(),
+            limit: '10',
+            ...(searchTerm && { search: searchTerm }),
+            ...(statusFilter !== 'all' && { status: statusFilter }),
+            ...(dateFrom && { date_from: dateFrom }),
+            ...(dateTo && { date_to: dateTo })
+          })
+
+          const refreshResponse = await fetch(`http://localhost:8000/api/admin/orders?${params}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          })
+
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json()
+            if (refreshData.success) {
+              setOrders(refreshData.data.orders)
+              setTotalPages(refreshData.data.pagination.pages)
+            }
+          }
+        } catch (refreshErr) {
+          console.error('Failed to refresh orders:', refreshErr)
+          // Still try to fetch orders using the existing function
+          await fetchOrders()
+        } finally {
+          setLoading(false)
+        }
+        
+        // If viewing order details, refresh those too
+        if (showOrderDetailsModal && editedOrderId) {
+          try {
+            const updatedOrder = await fetchOrderDetails(editedOrderId)
+            setSelectedOrder(updatedOrder)
+          } catch (err) {
+            console.error('Failed to refresh order details:', err)
+          }
+        }
         setSelectedOrder(null)
       } else {
         throw new Error(data.message || 'Failed to update order')
