@@ -40,7 +40,23 @@ function getExchangeRateFromAPI($targetCurrency) {
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 5);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        
+        // SSL verification - disable for local development if certificate issues occur
+        // In production, these should be enabled for security
+        $isLocalDev = (isset($_SERVER['HTTP_HOST']) && (
+            strpos($_SERVER['HTTP_HOST'], 'localhost') !== false || 
+            strpos($_SERVER['HTTP_HOST'], '127.0.0.1') !== false
+        )) || (php_sapi_name() === 'cli');
+        
+        if ($isLocalDev) {
+            // Disable SSL verification for local development
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        } else {
+            // Enable SSL verification for production
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        }
         
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

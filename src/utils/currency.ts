@@ -47,11 +47,11 @@ export const getCurrencySymbol = (currency: string): string => {
 }
 
 /**
- * Format price with currency symbol
+ * Format price with currency symbol, thousands separator, and always 2 decimal places
  * @param price - Price value (number or string)
  * @param currency - Currency code (e.g., 'USD', 'PHP')
- * @param decimals - Number of decimal places (default: 2)
- * @returns Formatted price string (e.g., '$99.99', '₱5,999.99')
+ * @param decimals - Number of decimal places (default: 2, always enforced)
+ * @returns Formatted price string (e.g., '$99.99', '₱5,999.99', '$100,000,000.00')
  */
 export const formatPrice = (price: number | string, currency: string, decimals: number = 2): string => {
   const symbol = getCurrencySymbol(currency)
@@ -61,7 +61,11 @@ export const formatPrice = (price: number | string, currency: string, decimals: 
     return `${symbol}0.00`
   }
   
-  return `${symbol}${numericPrice.toFixed(decimals)}`
+  // Always use thousands separator and always show 2 decimal places
+  return `${symbol}${numericPrice.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  })}`
 }
 
 /**
@@ -83,6 +87,25 @@ export const formatPriceWithSeparator = (price: number | string, currency: strin
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   })}`
+}
+
+/**
+ * Format number with thousands separator and always 2 decimal places
+ * @param num - Number value (number or string)
+ * @param decimals - Number of decimal places (default: 2)
+ * @returns Formatted number string (e.g., '100,000,000.00')
+ */
+export const formatNumber = (num: number | string, decimals: number = 2): string => {
+  const numericValue = typeof num === 'string' ? parseFloat(num) : Number(num)
+  
+  if (isNaN(numericValue)) {
+    return '0.00'
+  }
+  
+  return numericValue.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  })
 }
 
 /**

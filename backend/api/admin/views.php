@@ -151,6 +151,26 @@ if ($method === 'GET') {
                 }
                 break;
                 
+            case 'v_order_details':
+                // Support date filters for order details
+                if (isset($_GET['date_from'])) {
+                    $whereConditions[] = "DATE(order_date) >= ?";
+                    $params[] = $_GET['date_from'];
+                }
+                if (isset($_GET['date_to'])) {
+                    $whereConditions[] = "DATE(order_date) <= ?";
+                    $params[] = $_GET['date_to'];
+                }
+                if (isset($_GET['order_id'])) {
+                    $whereConditions[] = "order_id = ?";
+                    $params[] = (int)$_GET['order_id'];
+                }
+                if (isset($_GET['product_id'])) {
+                    $whereConditions[] = "product_id = ?";
+                    $params[] = (int)$_GET['product_id'];
+                }
+                break;
+                
             case 'v_daily_sales_totals':
                 if (isset($_GET['branch_id'])) {
                     $whereConditions[] = "branch_id = ?";
@@ -236,21 +256,27 @@ if ($method === 'GET') {
         // Convert amount fields based on view type
         // Note: Views store amounts in PHP (base currency), so we convert from PHP to requested currency
         if ($currency !== 'PHP') {
-            $rate = getExchangeRateFromAPI($currency);
-            if ($rate !== null && $rate > 0) {
-                // Convert amount fields in results
-                foreach ($results as &$row) {
-                    // Convert common amount fields
-                    $amountFields = ['total_revenue', 'total_amount', 'amount', 'price', 'unit_price', 'subtotal', 'total_price', 'purchase_value', 'average_price'];
-                    foreach ($amountFields as $field) {
-                        if (isset($row[$field]) && is_numeric($row[$field])) {
-                            $amountInPhp = (float)$row[$field];
-                            // Convert from PHP to requested currency
-                            $row[$field] = round(convertPriceFromPhp($amountInPhp, $currency), 2);
+            try {
+                $rate = getExchangeRateFromAPI($currency);
+                if ($rate !== null && $rate > 0) {
+                    // Convert amount fields in results
+                    foreach ($results as &$row) {
+                        // Convert common amount fields
+                        $amountFields = ['total_revenue', 'total_amount', 'amount', 'price', 'unit_price', 'subtotal', 'total_price', 'purchase_value', 'average_price'];
+                        foreach ($amountFields as $field) {
+                            if (isset($row[$field]) && is_numeric($row[$field])) {
+                                $amountInPhp = (float)$row[$field];
+                                // Convert from PHP to requested currency
+                                $row[$field] = round(convertPriceFromPhp($amountInPhp, $currency), 2);
+                            }
                         }
                     }
+                    unset($row); // Break reference
                 }
-                unset($row); // Break reference
+            } catch (Exception $e) {
+                // Log error but don't fail the request - return data in PHP
+                error_log("Currency conversion error in views API: " . $e->getMessage());
+                // Continue without conversion - data will be in PHP
             }
         }
         
@@ -275,7 +301,12 @@ if ($method === 'GET') {
         ], 'View data retrieved successfully');
         
     } catch (PDOException $e) {
-        error_log("Views API error: " . $e->getMessage());
+        error_log("Views API PDO error: " . $e->getMessage());
+        error_log("Views API PDO error trace: " . $e->getTraceAsString());
+        sendError('Failed to retrieve view data: ' . $e->getMessage(), 500);
+    } catch (Exception $e) {
+        error_log("Views API general error: " . $e->getMessage());
+        error_log("Views API general error trace: " . $e->getTraceAsString());
         sendError('Failed to retrieve view data: ' . $e->getMessage(), 500);
     }
 } else {

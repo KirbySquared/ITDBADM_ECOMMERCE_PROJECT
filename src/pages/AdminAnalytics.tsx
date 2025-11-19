@@ -14,7 +14,7 @@
 
 import { useState, useEffect } from 'react'
 import { useCurrency } from '../context/CurrencyContext'
-import { formatPrice, getCurrencySymbol } from '../utils/currency'
+import { formatPrice, formatNumber } from '../utils/currency'
 import './AdminAnalytics.css'
 
 // Chart.js imports
@@ -31,7 +31,7 @@ import {
   Legend,
   Filler
 } from 'chart.js'
-import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2'
+import { Line, Bar, Doughnut } from 'react-chartjs-2'
 
 ChartJS.register(
   CategoryScale,
@@ -982,13 +982,13 @@ function AdminAnalytics() {
                               <td>{product.category_name}</td>
                               <td>{formatPrice(product.price, currency)}</td>
                               <td className="text-center">
-                                <span className="badge bg-info">{product.total_stock}</span>
+                                <span className="badge bg-info">{formatNumber(product.total_stock)}</span>
                               </td>
                               <td className="text-center">
-                                <span className="badge bg-secondary">{product.sold_count}</span>
+                                <span className="badge bg-secondary">{formatNumber(product.sold_count)}</span>
                               </td>
                               <td className="text-center">
-                                <span className={`badge bg-${stockStatus}`}>{remaining}</span>
+                                <span className={`badge bg-${stockStatus}`}>{formatNumber(remaining)}</span>
                               </td>
                               <td className="text-center">
                                 <div className="progress" style={{ height: '20px', minWidth: '100px' }}>
@@ -996,7 +996,7 @@ function AdminAnalytics() {
                                     className={`progress-bar bg-${stockStatus}`}
                                     role="progressbar"
                                     style={{ width: `${Math.min(100, parseFloat(stockPercentage))}%` }}
-                                    aria-valuenow={stockPercentage}
+                                    aria-valuenow={parseFloat(stockPercentage)}
                                     aria-valuemin={0}
                                     aria-valuemax={100}
                                   >
