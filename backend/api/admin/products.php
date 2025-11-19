@@ -57,6 +57,8 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/audit_helper.php';
+require_once __DIR__ . '/../../utils/stored_procedure_helper.php';
 
 // Get authorization header
 $headers = getallheaders();
@@ -139,7 +141,7 @@ try {
                 break;
                 
             case 'POST':
-                // Add or update inventory for a branch
+                // Add stock to branch using stored procedure
                 $input = json_decode(file_get_contents('php://input'), true);
                 
                 if (!isset($input['branch_id']) || !is_numeric($input['branch_id'])) {
@@ -153,28 +155,104 @@ try {
                 $branchId = (int)$input['branch_id'];
                 $stockQty = (int)$input['stock_qty'];
                 
-                // Check if product exists
-                $checkProduct = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ?");
-                $checkProduct->execute([$productIdParam]);
-                if (!$checkProduct->fetch()) {
-                    sendError('Product not found', 404);
+                try {
+                    // Use stored procedure to add stock
+                    // sp_add_stock_to_branch handles validation, inventory update, and logging
+                    $message = callStoredProcedureMessage($pdo, 'sp_add_stock_to_branch', [
+                        $productIdParam,
+                        $branchId,
+                        $stockQty,
+                        $userId
+                    ]);
+                    
+                    // Get updated inventory entry
+                    $stmt = $pdo->prepare("
+                        SELECT 
+                            pi.branch_id,
+                            b.branch_name,
+                            pi.stock_qty
+                        FROM product_inventory pi
+                        LEFT JOIN branches b ON pi.branch_id = b.branch_id
+                        WHERE pi.product_id = ? AND pi.branch_id = ?
+                    ");
+                    $stmt->execute([$productIdParam, $branchId]);
+                    $inventoryEntry = $stmt->fetch(PDO::FETCH_ASSOC);
+                    
+                    sendResponse($inventoryEntry, $message ?? 'Stock added successfully');
+                } catch (PDOException $e) {
+                    error_log('Add stock error: ' . $e->getMessage());
+                    $errorMsg = $e->getMessage();
+                    if (strpos($errorMsg, 'SQLSTATE[45000]') !== false) {
+                        preg_match('/SQLSTATE\[45000\]:\s*(.+)/', $errorMsg, $matches);
+                        $errorMsg = $matches[1] ?? 'Failed to add stock';
+                    }
+                    sendError($errorMsg, 500);
+                }
+                break;
+                
+            case 'PUT':
+                // Adjust inventory using stored procedure (for adjustments like damaged items)
+                $input = json_decode(file_get_contents('php://input'), true);
+                
+                if (!isset($input['branch_id']) || !is_numeric($input['branch_id'])) {
+                    sendError('Branch ID is required', 400);
                 }
                 
-                // Check if branch exists
-                $checkBranch = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_id = ?");
-                $checkBranch->execute([$branchId]);
-                if (!$checkBranch->fetch()) {
-                    sendError('Branch not found', 404);
+                if (!isset($input['adjustment']) || !is_numeric($input['adjustment'])) {
+                    sendError('Adjustment quantity is required', 400);
                 }
                 
-                // ATOMICITY: Start transaction - all operations succeed or all fail
-                // Start transaction for atomicity and isolation
-                $pdo->exec("START TRANSACTION");
+                $branchId = (int)$input['branch_id'];
+                $adjustment = (int)$input['adjustment'];
+                $reason = $input['reason'] ?? 'Inventory adjustment';
                 
                 try {
-                    // ISOLATION: Row-level locking prevents concurrent inventory modifications
-                    // Check if inventory entry exists WITH ROW-LEVEL LOCKING
-                    // FOR UPDATE prevents concurrent modifications
+                    // Use stored procedure to adjust inventory
+                    // sp_adjust_branch_inventory handles validation, adjustment, and logging
+                    $message = callStoredProcedureMessage($pdo, 'sp_adjust_branch_inventory', [
+                        $productIdParam,
+                        $branchId,
+                        $adjustment,
+                        $reason,
+                        $userId
+                    ]);
+                    
+                    // Get updated inventory entry
+                    $stmt = $pdo->prepare("
+                        SELECT 
+                            pi.branch_id,
+                            b.branch_name,
+                            pi.stock_qty
+                        FROM product_inventory pi
+                        LEFT JOIN branches b ON pi.branch_id = b.branch_id
+                        WHERE pi.product_id = ? AND pi.branch_id = ?
+                    ");
+                    $stmt->execute([$productIdParam, $branchId]);
+                    $inventoryEntry = $stmt->fetch(PDO::FETCH_ASSOC);
+                    
+                    sendResponse($inventoryEntry, $message ?? 'Inventory adjusted successfully');
+                } catch (PDOException $e) {
+                    error_log('Adjust inventory error: ' . $e->getMessage());
+                    $errorMsg = $e->getMessage();
+                    if (strpos($errorMsg, 'SQLSTATE[45000]') !== false) {
+                        preg_match('/SQLSTATE\[45000\]:\s*(.+)/', $errorMsg, $matches);
+                        $errorMsg = $matches[1] ?? 'Failed to adjust inventory';
+                    }
+                    sendError($errorMsg, 500);
+                }
+                break;
+                
+            case 'DELETE':
+                // Remove inventory entry (keep old logic for now)
+                // Could create a stored procedure for this if needed
+                try {
+                    // ATOMICITY: Start transaction
+                    $pdo->exec("START TRANSACTION");
+                    
+                    // Set audit user ID for triggers
+                    setAuditUserId($pdo, $userId);
+                    
+                    // Check if inventory entry exists
                     $checkInv = $pdo->prepare("
                         SELECT stock_qty 
                         FROM product_inventory 
@@ -185,6 +263,8 @@ try {
                     $existing = $checkInv->fetch();
                     
                     // ATOMICITY: Inventory update/insert within transaction
+                    // NOTE: Triggers trg_product_inventory_insert_audit/update_audit will log changes
+                    // NOTE: Trigger trg_product_inventory_prevent_negative_stock will prevent negative stock
                     if ($existing) {
                         // Update existing inventory
                         $stmt = $pdo->prepare("
@@ -205,6 +285,7 @@ try {
                     // DURABILITY: COMMIT ensures all changes are permanently saved
                     // Commit transaction
                     $pdo->exec("COMMIT");
+                    clearAuditUserId($pdo); // Clear audit user ID after transaction
                     
                     // Get updated inventory entry
                     $stmt = $pdo->prepare("
@@ -223,6 +304,7 @@ try {
                 } catch (Exception $e) {
                     // Rollback on any error
                     $pdo->exec("ROLLBACK");
+                    clearAuditUserId($pdo); // Clear audit user ID on error
                     error_log('Inventory update error: ' . $e->getMessage());
                     sendError('Failed to update inventory: ' . $e->getMessage(), 500);
                 }
@@ -245,6 +327,9 @@ try {
                 // ATOMICITY: Start transaction - all operations succeed or all fail
                 $pdo->exec("START TRANSACTION");
                 
+                // Set audit user ID for triggers (for transaction logging)
+                setAuditUserId($pdo, $userId);
+                
                 try {
                     // ISOLATION: Row-level locking prevents concurrent inventory modifications
                     // CONSISTENCY: Validate inventory exists
@@ -260,20 +345,24 @@ try {
                     
                     if (!$existing) {
                         $pdo->exec("ROLLBACK");
+                        clearAuditUserId($pdo);
                         sendError('Inventory entry not found', 404);
                     }
                     
                     // ATOMICITY: Inventory deletion within transaction
                     // Delete inventory entry
+                    // NOTE: Trigger trg_product_inventory_delete_audit will log deletion
                     $stmt = $pdo->prepare("DELETE FROM product_inventory WHERE product_id = ? AND branch_id = ?");
                     $stmt->execute([$productIdParam, $branchId]);
                     
                     // DURABILITY: COMMIT ensures all changes are permanently saved
                     $pdo->exec("COMMIT");
+                    clearAuditUserId($pdo); // Clear audit user ID after transaction
                     sendResponse(null, 'Inventory removed successfully');
                 } catch (Exception $e) {
                     // ATOMICITY: Rollback ensures no partial state on error
                     $pdo->exec("ROLLBACK");
+                    clearAuditUserId($pdo); // Clear audit user ID on error
                     error_log('Inventory deletion error: ' . $e->getMessage());
                     sendError('Failed to remove inventory: ' . $e->getMessage(), 500);
                 }
@@ -685,6 +774,9 @@ try {
             // ATOMICITY: Start transaction - all operations succeed or all fail
             $pdo->exec("START TRANSACTION");
             
+            // Set audit user ID for triggers (for transaction logging)
+            setAuditUserId($pdo, $userId);
+            
             try {
                 // ISOLATION: Row-level locking prevents concurrent category modifications
                 // CONSISTENCY: Validate category exists before INSERT
@@ -693,6 +785,7 @@ try {
                 $stmt->execute([$input['category_id']]);
                 if (!$stmt->fetch()) {
                     $pdo->exec("ROLLBACK");
+                    clearAuditUserId($pdo);
                     sendError('Category not found', 404);
                 }
                 
@@ -705,6 +798,7 @@ try {
                     $stmt->execute([$genreId]);
                     if (!$stmt->fetch()) {
                         $pdo->exec("ROLLBACK");
+                        clearAuditUserId($pdo);
                         sendError('Genre not found', 404);
                     }
                 }
@@ -712,6 +806,8 @@ try {
                 // ATOMICITY: Product INSERT within transaction
                 // Insert product - price is stored in PHP (base currency)
                 // Brand and model can be empty for games (when genre_id is set)
+                // NOTE: Trigger trg_products_prevent_negative_price will validate price
+                // NOTE: Trigger trg_products_create_audit will log product creation
                 $stmt = $pdo->prepare("
                     INSERT INTO products (category_id, genre_id, product_name, brand, model, description, price, specifications) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -735,6 +831,7 @@ try {
                 // Handle inventory if stock_quantity is provided
                 // Skip inventory if branch_id is 0 (no branch) - new products are created without branch assignment
                 // Admins will add products to branches later using the inventory management endpoint
+                // NOTE: Triggers trg_product_inventory_insert_audit/update_audit will log inventory changes
                 $branchId = isset($input['branch_id']) ? (int)$input['branch_id'] : 0;
                 if ($branchId !== 0 && isset($input['stock_quantity']) && is_numeric($input['stock_quantity']) && $input['stock_quantity'] >= 0) {
                     // Check if inventory entry exists for the selected branch WITH ROW-LEVEL LOCKING
@@ -755,9 +852,11 @@ try {
                 
                 // DURABILITY: COMMIT ensures all changes are permanently saved
                 $pdo->exec("COMMIT");
+                clearAuditUserId($pdo); // Clear audit user ID after transaction
             } catch (Exception $e) {
                 // ATOMICITY: Rollback ensures no partial state on error
                 $pdo->exec("ROLLBACK");
+                clearAuditUserId($pdo); // Clear audit user ID on error
                 error_log('Product creation error: ' . $e->getMessage());
                 sendError('Failed to create product: ' . $e->getMessage(), 500);
             }
@@ -930,6 +1029,8 @@ try {
                 
                 $params[] = $productIdParam;
                 
+                // NOTE: Trigger trg_products_prevent_negative_price will validate price
+                // NOTE: Trigger trg_products_update_audit will log product update
                 $sql = "UPDATE products SET " . implode(', ', $updateFields) . " WHERE product_id = ?";
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($params);
@@ -939,6 +1040,8 @@ try {
                 // Handle inventory update if stock_quantity is provided
                 // Use branch_id from input (which should come from the product's existing inventory)
                 // Skip inventory update if branch_id is 0 (no branch)
+                // NOTE: Triggers trg_product_inventory_insert_audit/update_audit will log changes
+                // NOTE: Trigger trg_product_inventory_prevent_negative_stock will prevent negative stock
                 $branchId = isset($input['branch_id']) ? (int)$input['branch_id'] : null;
                 
                 if ($branchId !== 0 && isset($input['stock_quantity']) && is_numeric($input['stock_quantity'])) {
@@ -977,9 +1080,11 @@ try {
                 
                 // DURABILITY: COMMIT ensures all changes are permanently saved
                 $pdo->exec("COMMIT");
+                clearAuditUserId($pdo); // Clear audit user ID after transaction
             } catch (Exception $e) {
                 // ATOMICITY: Rollback ensures no partial state on error
                 $pdo->exec("ROLLBACK");
+                clearAuditUserId($pdo); // Clear audit user ID on error
                 error_log('Product update error: ' . $e->getMessage());
                 sendError('Failed to update product: ' . $e->getMessage(), 500);
             }
@@ -1065,9 +1170,13 @@ try {
             // - DURABILITY: Once COMMIT, changes are permanent
             $pdo->exec("START TRANSACTION");
             
+            // Set audit user ID for triggers (for transaction logging)
+            setAuditUserId($pdo, $userId);
+            
             try {
                 // Delete related records in order (respecting foreign key constraints)
                 // 1. Delete from product_inventory (has ON DELETE RESTRICT constraint)
+                // NOTE: Trigger trg_product_inventory_delete_audit will log deletion
                 $stmt = $pdo->prepare("DELETE FROM product_inventory WHERE product_id = ?");
                 $stmt->execute([$productIdParam]);
                 
@@ -1080,7 +1189,7 @@ try {
                 $stmt->execute([$productIdParam]);
                 
                 // 4. Delete from order_items (has ON DELETE CASCADE, but we'll do it explicitly for clarity)
-                // Note: This will affect order totals, but we'll delete them anyway
+                // NOTE: Trigger trg_order_items_update_order_total_delete will update order totals
                 $stmt = $pdo->prepare("DELETE FROM order_items WHERE product_id = ?");
                 $stmt->execute([$productIdParam]);
                 
@@ -1089,16 +1198,19 @@ try {
                 $stmt->execute([$productIdParam]);
                 
                 // 6. Finally, delete the product itself
-            $stmt = $pdo->prepare("DELETE FROM products WHERE product_id = ?");
-            $stmt->execute([$productIdParam]);
+                // NOTE: Trigger trg_products_delete_audit will log deletion
+                $stmt = $pdo->prepare("DELETE FROM products WHERE product_id = ?");
+                $stmt->execute([$productIdParam]);
                 
                 // Commit transaction - all deletions are now permanent
                 $pdo->exec("COMMIT");
+                clearAuditUserId($pdo); // Clear audit user ID after transaction
             
             sendResponse(null, 'Product deleted successfully');
             } catch (PDOException $e) {
                 // Rollback on error - all changes are discarded
                 $pdo->exec("ROLLBACK");
+                clearAuditUserId($pdo); // Clear audit user ID on error
                 throw $e; // Re-throw to be caught by outer catch block
             }
             break;

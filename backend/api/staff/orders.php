@@ -26,11 +26,18 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/staff_auth.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 
 // Authenticate staff and get branch_id
 $auth = requireStaffAuth();
 $staffUserId = $auth['user_id'];
 $branchId = $auth['branch_id'];
+
+// Get currency parameter (default PHP)
+$currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+if (!isValidCurrencyCode($currency)) {
+    $currency = 'PHP';
+}
 
 // Get request method and path
 $method = $_SERVER['REQUEST_METHOD'];
@@ -81,6 +88,46 @@ try {
                 ");
                 $stmt->execute([$orderIdParam]);
                 $payment = $stmt->fetch();
+                
+                // Convert amounts to requested currency
+                if ($currency !== 'PHP') {
+                    $rate = getExchangeRateFromAPI($currency);
+                    if ($rate !== null && $rate > 0) {
+                        // Get order currency snapshot for historical conversion
+                        $rateStmt = $pdo->prepare("
+                            SELECT order_currency, order_rate_to_php 
+                            FROM order_currency_snapshots 
+                            WHERE order_id = ?
+                        ");
+                        $rateStmt->execute([$orderIdParam]);
+                        $orderRate = $rateStmt->fetch(PDO::FETCH_ASSOC);
+                        
+                        // Convert order total
+                        if (isset($order['total_amount']) && is_numeric($order['total_amount'])) {
+                            $order['total_amount'] = round(convertPriceFromPhp((float)$order['total_amount'], $currency), 2);
+                            $order['currency'] = $currency;
+                        }
+                        
+                        // Convert order items
+                        if (isset($order['items']) && is_array($order['items'])) {
+                            foreach ($order['items'] as &$item) {
+                                if (isset($item['unit_price']) && is_numeric($item['unit_price'])) {
+                                    $item['unit_price'] = round(convertPriceFromPhp((float)$item['unit_price'], $currency), 2);
+                                }
+                                if (isset($item['subtotal']) && is_numeric($item['subtotal'])) {
+                                    $item['subtotal'] = round(convertPriceFromPhp((float)$item['subtotal'], $currency), 2);
+                                }
+                            }
+                            unset($item);
+                        }
+                        
+                        // Convert payment amount
+                        if ($payment && isset($payment['amount']) && is_numeric($payment['amount'])) {
+                            $payment['amount'] = round(convertPriceFromPhp((float)$payment['amount'], $currency), 2);
+                            $payment['currency'] = $currency;
+                        }
+                    }
+                }
                 $order['payment'] = $payment;
                 
                 sendResponse($order, 'Order retrieved successfully');
@@ -139,6 +186,40 @@ try {
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($params);
                 $orders = $stmt->fetchAll();
+                
+                // Convert amounts to requested currency
+                if ($currency !== 'PHP') {
+                    $rate = getExchangeRateFromAPI($currency);
+                    if ($rate !== null && $rate > 0) {
+                        // Get order currency snapshots for historical conversion
+                        $orderIds = array_column($orders, 'order_id');
+                        $orderRates = [];
+                        if (!empty($orderIds)) {
+                            $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
+                            $rateStmt = $pdo->prepare("
+                                SELECT order_id, order_currency, order_rate_to_php 
+                                FROM order_currency_snapshots 
+                                WHERE order_id IN ($placeholders)
+                            ");
+                            $rateStmt->execute($orderIds);
+                            while ($rateRow = $rateStmt->fetch(PDO::FETCH_ASSOC)) {
+                                $orderRates[$rateRow['order_id']] = [
+                                    'currency' => $rateRow['order_currency'],
+                                    'rate_to_php' => (float)$rateRow['order_rate_to_php']
+                                ];
+                            }
+                        }
+                        
+                        // Convert amounts
+                        foreach ($orders as &$order) {
+                            if (isset($order['total_amount']) && is_numeric($order['total_amount'])) {
+                                $order['total_amount'] = round(convertPriceFromPhp((float)$order['total_amount'], $currency), 2);
+                                $order['currency'] = $currency;
+                            }
+                        }
+                        unset($order);
+                    }
+                }
                 
                 // Get total count
                 $countSql = "SELECT COUNT(DISTINCT o.order_id) 
@@ -254,6 +335,37 @@ try {
                     ");
                     $stmt->execute([$orderIdParam]);
                     $payment = $stmt->fetch();
+                    
+                    // Convert amounts to requested currency
+                    if ($currency !== 'PHP') {
+                        $rate = getExchangeRateFromAPI($currency);
+                        if ($rate !== null && $rate > 0) {
+                            // Convert order total
+                            if (isset($updatedOrder['total_amount']) && is_numeric($updatedOrder['total_amount'])) {
+                                $updatedOrder['total_amount'] = round(convertPriceFromPhp((float)$updatedOrder['total_amount'], $currency), 2);
+                                $updatedOrder['currency'] = $currency;
+                            }
+                            
+                            // Convert order items
+                            if (isset($updatedOrder['items']) && is_array($updatedOrder['items'])) {
+                                foreach ($updatedOrder['items'] as &$item) {
+                                    if (isset($item['unit_price']) && is_numeric($item['unit_price'])) {
+                                        $item['unit_price'] = round(convertPriceFromPhp((float)$item['unit_price'], $currency), 2);
+                                    }
+                                    if (isset($item['subtotal']) && is_numeric($item['subtotal'])) {
+                                        $item['subtotal'] = round(convertPriceFromPhp((float)$item['subtotal'], $currency), 2);
+                                    }
+                                }
+                                unset($item);
+                            }
+                            
+                            // Convert payment amount
+                            if ($payment && isset($payment['amount']) && is_numeric($payment['amount'])) {
+                                $payment['amount'] = round(convertPriceFromPhp((float)$payment['amount'], $currency), 2);
+                                $payment['currency'] = $currency;
+                            }
+                        }
+                    }
                     $updatedOrder['payment'] = $payment;
                     
                     sendResponse($updatedOrder, 'Order status updated successfully');

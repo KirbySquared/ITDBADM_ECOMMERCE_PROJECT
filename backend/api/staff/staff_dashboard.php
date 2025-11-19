@@ -13,11 +13,18 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/staff_auth.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 
 // Authenticate staff and get branch_id
 $auth = requireStaffAuth();
 $staffUserId = $auth['user_id'];
 $branchId = $auth['branch_id'];
+
+// Get currency parameter (default PHP)
+$currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+if (!isValidCurrencyCode($currency)) {
+    $currency = 'PHP';
+}
 
 try {
     // Get branch info
@@ -72,7 +79,47 @@ try {
         LIMIT 10
     ");
     $stmt->execute([$branchId]);
-    $stats['recentOrders'] = $stmt->fetchAll();
+    $recentOrders = $stmt->fetchAll();
+    
+    // Convert order amounts to requested currency
+    if ($currency !== 'PHP') {
+        $rate = getExchangeRateFromAPI($currency);
+        if ($rate !== null && $rate > 0) {
+            // Get order currency snapshots for historical conversion
+            $orderIds = array_column($recentOrders, 'order_id');
+            $orderRates = [];
+            if (!empty($orderIds)) {
+                $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
+                $rateStmt = $pdo->prepare("
+                    SELECT order_id, order_currency, order_rate_to_php 
+                    FROM order_currency_snapshots 
+                    WHERE order_id IN ($placeholders)
+                ");
+                $rateStmt->execute($orderIds);
+                while ($rateRow = $rateStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $orderRates[$rateRow['order_id']] = [
+                        'currency' => $rateRow['order_currency'],
+                        'rate_to_php' => (float)$rateRow['order_rate_to_php']
+                    ];
+                }
+            }
+            
+            // Convert amounts
+            foreach ($recentOrders as &$order) {
+                if (isset($order['total_amount']) && is_numeric($order['total_amount'])) {
+                    $amountInPhp = (float)$order['total_amount'];
+                    if (isset($orderRates[$order['order_id']]) && $orderRates[$order['order_id']]['rate_to_php'] > 0) {
+                        $order['total_amount'] = round(convertPriceFromPhp($amountInPhp, $currency), 2);
+                    } else {
+                        $order['total_amount'] = round(convertPriceFromPhp($amountInPhp, $currency), 2);
+                    }
+                    $order['currency'] = $currency;
+                }
+            }
+            unset($order);
+        }
+    }
+    $stats['recentOrders'] = $recentOrders;
     
     // Low stock products for this branch (< 10 items)
     $stmt = $pdo->prepare("

@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
+require_once __DIR__ . '/../../utils/stored_procedure_helper.php';
 require_once '../../utils/admin_auth.php';
 
 // Require admin authentication
@@ -36,9 +38,9 @@ try {
     ");
     $stats['recentOrders'] = $stmt->fetchAll();
     
-    // Low stock products
-    $stmt = $pdo->query("SELECT * FROM products WHERE stock_quantity < 10 ORDER BY stock_quantity ASC");
-    $stats['lowStockProducts'] = $stmt->fetchAll();
+    // Low stock products using stored procedure
+    // Get low stock products (threshold: 10, all branches)
+    $stats['lowStockProducts'] = callStoredProcedure($pdo, 'sp_get_low_stock_products', [10, null]);
     
     sendResponse($stats, 'Dashboard data retrieved successfully');
     

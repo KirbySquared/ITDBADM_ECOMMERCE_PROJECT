@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import StaffLayout from '../components/StaffLayout'
+import { useCurrency } from '../context/CurrencyContext'
 import { formatPrice } from '../utils/currency'
 
 interface OrderItem {
@@ -52,6 +53,7 @@ function StaffOrders() {
   const [dateTo, setDateTo] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  const { currency } = useCurrency()
   
   // Modal states
   const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false)
@@ -60,7 +62,8 @@ function StaffOrders() {
 
   useEffect(() => {
     fetchOrders()
-  }, [currentPage, statusFilter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, statusFilter, currency])
 
   const fetchOrders = async () => {
     setLoading(true)
@@ -76,6 +79,7 @@ function StaffOrders() {
         ...(dateTo && { date_to: dateTo })
       })
 
+      params.append('currency', currency)
       const response = await fetch(`http://localhost:8000/api/staff/orders?${params}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -104,7 +108,7 @@ function StaffOrders() {
   const fetchOrderDetails = async (orderId: number) => {
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch(`http://localhost:8000/api/staff/orders/${orderId}`, {
+      const response = await fetch(`http://localhost:8000/api/staff/orders/${orderId}?currency=${currency}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'

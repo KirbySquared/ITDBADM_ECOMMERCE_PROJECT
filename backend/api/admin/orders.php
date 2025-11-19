@@ -38,6 +38,9 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
+require_once __DIR__ . '/../../utils/audit_helper.php';
+require_once __DIR__ . '/../../utils/stored_procedure_helper.php';
 
 // Get authorization header
 $headers = getallheaders();
@@ -82,14 +85,27 @@ if (count($pathParts) >= 4 && is_numeric($pathParts[3])) {
 }
 
 try {
+    // Get currency parameter (default PHP)
+    $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+    if (!isValidCurrencyCode($currency)) {
+        $currency = 'PHP';
+    }
+    
     switch ($method) {
         case 'GET':
             if ($orderIdParam) {
                 // Get specific order with items and user details
                 $stmt = $pdo->prepare("
-                    SELECT o.*, u.first_name, u.last_name, u.email, u.phone
+                    SELECT 
+                        o.*, 
+                        u.first_name, 
+                        u.last_name, 
+                        u.email, 
+                        u.phone,
+                        COALESCE(ocs.rate_to_php, 1.0) as order_rate_to_php
                     FROM orders o 
                     LEFT JOIN users u ON o.user_id = u.user_id 
+                    LEFT JOIN order_currency_snapshots ocs ON o.order_id = ocs.order_id
                     WHERE o.order_id = ?
                 ");
                 $stmt->execute([$orderIdParam]);
@@ -98,6 +114,27 @@ try {
                 if (!$order) {
                     sendError('Order not found', 404);
                 }
+                
+                // Convert order total_amount to requested currency
+                $amountInPhp = $order['total_amount'];
+                $orderCurrency = $order['currency'] ?? 'PHP';
+                
+                // Convert from order currency to PHP first (if different)
+                if ($orderCurrency !== 'PHP') {
+                    if ($order['order_rate_to_php'] && $order['order_rate_to_php'] > 0) {
+                        // Use historical rate from snapshot if available
+                        $amountInPhp = $order['total_amount'] / $order['order_rate_to_php'];
+                    } else {
+                        // No snapshot, use current rate (fallback)
+                        $currentRate = getExchangeRateFromAPI($orderCurrency);
+                        if ($currentRate && $currentRate > 0) {
+                            $amountInPhp = $order['total_amount'] / $currentRate;
+                        }
+                        // If rate is null or 0, assume amount is already in PHP
+                    }
+                }
+                $order['total_amount'] = convertPriceFromPhp($amountInPhp, $currency);
+                $order['currency'] = $currency;
                 
                 // Get order items with product details
                 $stmt = $pdo->prepare("
@@ -109,7 +146,37 @@ try {
                     ORDER BY oi.order_item_id ASC
                 ");
                 $stmt->execute([$orderIdParam]);
-                $order['items'] = $stmt->fetchAll();
+                $items = $stmt->fetchAll();
+                
+                // Convert item prices to requested currency
+                // Items store prices in order currency, need to convert
+                foreach ($items as &$item) {
+                    $itemPriceInPhp = $item['unit_price'];
+                    $itemSubtotalInPhp = $item['subtotal'];
+                    
+                    // Convert from order currency to PHP first (if different)
+                    if ($orderCurrency !== 'PHP') {
+                        if ($order['order_rate_to_php'] && $order['order_rate_to_php'] > 0) {
+                            // Use historical rate from snapshot if available
+                            $itemPriceInPhp = $item['unit_price'] / $order['order_rate_to_php'];
+                            $itemSubtotalInPhp = $item['subtotal'] / $order['order_rate_to_php'];
+                        } else {
+                            // No snapshot, use current rate (fallback)
+                            $currentRate = getExchangeRateFromAPI($orderCurrency);
+                            if ($currentRate && $currentRate > 0) {
+                                $itemPriceInPhp = $item['unit_price'] / $currentRate;
+                                $itemSubtotalInPhp = $item['subtotal'] / $currentRate;
+                            }
+                            // If rate is null or 0, assume prices are already in PHP
+                        }
+                    }
+                    // Convert to requested currency
+                    $item['unit_price'] = convertPriceFromPhp($itemPriceInPhp, $currency);
+                    $item['subtotal'] = convertPriceFromPhp($itemSubtotalInPhp, $currency);
+                }
+                unset($item);
+                
+                $order['items'] = $items;
                 
                 // Get payment details if exists
                 $stmt = $pdo->prepare("
@@ -119,6 +186,30 @@ try {
                 ");
                 $stmt->execute([$orderIdParam]);
                 $payment = $stmt->fetch();
+                
+                // Convert payment amount if exists
+                if ($payment) {
+                    $paymentAmountInPhp = $payment['amount'];
+                    $paymentCurrency = $payment['currency'] ?? $orderCurrency;
+                    
+                    // Convert from payment currency to PHP first (if different)
+                    if ($paymentCurrency !== 'PHP') {
+                        if ($order['order_rate_to_php'] && $order['order_rate_to_php'] > 0) {
+                            // Use historical rate from snapshot if available
+                            $paymentAmountInPhp = $payment['amount'] / $order['order_rate_to_php'];
+                        } else {
+                            // No snapshot, use current rate (fallback)
+                            $currentRate = getExchangeRateFromAPI($paymentCurrency);
+                            if ($currentRate && $currentRate > 0) {
+                                $paymentAmountInPhp = $payment['amount'] / $currentRate;
+                            }
+                            // If rate is null or 0, assume amount is already in PHP
+                        }
+                    }
+                    $payment['amount'] = convertPriceFromPhp($paymentAmountInPhp, $currency);
+                    $payment['currency'] = $currency;
+                }
+                
                 $order['payment'] = $payment;
                 
                 sendResponse($order, 'Order retrieved successfully');
@@ -160,14 +251,20 @@ try {
                 
                 $whereClause = $whereConditions ? 'WHERE ' . implode(' AND ', $whereConditions) : '';
                 
-                // Get orders with user details
-                $sql = "SELECT o.*, u.first_name, u.last_name, u.email,
-                               COALESCE(SUM(oi.quantity), 0) as items_count
+                // Get orders with user details and currency snapshots
+                $sql = "SELECT 
+                            o.*, 
+                            u.first_name, 
+                            u.last_name, 
+                            u.email,
+                            COALESCE(SUM(oi.quantity), 0) as items_count,
+                            COALESCE(ocs.rate_to_php, 1.0) as order_rate_to_php
                         FROM orders o 
                         LEFT JOIN users u ON o.user_id = u.user_id 
                         LEFT JOIN order_items oi ON o.order_id = oi.order_id
+                        LEFT JOIN order_currency_snapshots ocs ON o.order_id = ocs.order_id
                         $whereClause
-                        GROUP BY o.order_id
+                        GROUP BY o.order_id, ocs.rate_to_php
                         ORDER BY o.order_date DESC 
                         LIMIT ? OFFSET ?";
                 
@@ -177,6 +274,31 @@ try {
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($params);
                 $orders = $stmt->fetchAll();
+                
+                // Convert each order's total_amount to requested currency
+                foreach ($orders as &$order) {
+                    $amountInPhp = $order['total_amount'];
+                    $orderCurrency = $order['currency'] ?? 'PHP';
+                    
+                    // Convert from order currency to PHP first (if different)
+                    if ($orderCurrency !== 'PHP') {
+                        if ($order['order_rate_to_php'] && $order['order_rate_to_php'] > 0) {
+                            // Use historical rate from snapshot if available
+                            $amountInPhp = $order['total_amount'] / $order['order_rate_to_php'];
+                        } else {
+                            // No snapshot, use current rate (fallback)
+                            $currentRate = getExchangeRateFromAPI($orderCurrency);
+                            if ($currentRate && $currentRate > 0) {
+                                $amountInPhp = $order['total_amount'] / $currentRate;
+                            }
+                            // If rate is null or 0, assume amount is already in PHP
+                        }
+                    }
+                    // Convert to requested currency
+                    $order['total_amount'] = convertPriceFromPhp($amountInPhp, $currency);
+                    $order['currency'] = $currency; // Update currency in response
+                }
+                unset($order); // Break reference
                 
                 // Get total count
                 $countSql = "SELECT COUNT(DISTINCT o.order_id) 
@@ -245,10 +367,14 @@ try {
             // - DURABILITY: Once COMMIT, changes are permanent
             $pdo->exec("START TRANSACTION");
             
+            // Set audit user ID for triggers (for transaction logging)
+            setAuditUserId($pdo, $userId);
+            
             try {
                 // ATOMICITY: Order creation within transaction
                 // CONSISTENCY: Validates user exists before creating order
                 // Insert order
+                // NOTE: Triggers will automatically update total_amount when order_items are inserted
                 $stmt = $pdo->prepare("
                     INSERT INTO orders (user_id, total_amount, currency, status, shipping_address) 
                     VALUES (?, ?, ?, ?, ?)
@@ -267,6 +393,9 @@ try {
                 // ATOMICITY: Order items creation within same transaction
                 // CONSISTENCY: Validates each product exists before creating order item
                 // Insert order items
+                // NOTE: Triggers will automatically:
+                // 1. Calculate subtotal if NULL (trg_order_items_calculate_subtotal)
+                // 2. Update order total_amount (trg_order_items_update_order_total_insert)
                 $stmt = $pdo->prepare("
                     INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal) 
                     VALUES (?, ?, ?, ?, ?)
@@ -303,6 +432,7 @@ try {
                 // DURABILITY: COMMIT ensures all changes are permanently saved
                 // Commit transaction - all changes are now permanent
                 $pdo->exec("COMMIT");
+                clearAuditUserId($pdo); // Clear audit user ID after transaction
                 
                 // Get created order with user details
                 $stmt = $pdo->prepare("
@@ -319,6 +449,7 @@ try {
             } catch (Exception $e) {
                 // Rollback on error - all changes are discarded
                 $pdo->exec("ROLLBACK");
+                clearAuditUserId($pdo); // Clear audit user ID on error
                 sendError('Failed to create order: ' . $e->getMessage(), 500);
             }
             break;
@@ -426,6 +557,9 @@ try {
             // - DURABILITY: Once COMMIT, changes are permanent
             $pdo->exec("START TRANSACTION");
             
+            // Set audit user ID for triggers (for transaction logging)
+            setAuditUserId($pdo, $userId);
+            
             try {
                 // ISOLATION: Row-level locking prevents concurrent order modifications
                 // CONSISTENCY: Validate order exists
@@ -437,16 +571,43 @@ try {
                 
                 if (!$order) {
                     $pdo->exec("ROLLBACK");
+                    clearAuditUserId($pdo);
                     sendError('Order not found', 404);
                 }
                 
                 // ATOMICITY: Order update within transaction
                 // CONSISTENCY: Validates allowed fields before update
                 // Update order basic info
+                // If status is being updated, use stored procedure for validation
+                if (isset($input['status'])) {
+                    try {
+                        // Use stored procedure to update order status with validation
+                        $message = callStoredProcedureMessage($pdo, 'sp_update_order_status', [
+                            $orderIdParam,
+                            $input['status'],
+                            $userId
+                        ]);
+                        // Status updated successfully via stored procedure
+                        // Remove status from updateFields since it's already handled
+                        unset($input['status']);
+                    } catch (PDOException $e) {
+                        $pdo->exec("ROLLBACK");
+                        clearAuditUserId($pdo);
+                        error_log('Order status update error: ' . $e->getMessage());
+                        $errorMsg = $e->getMessage();
+                        if (strpos($errorMsg, 'SQLSTATE[45000]') !== false) {
+                            preg_match('/SQLSTATE\[45000\]:\s*(.+)/', $errorMsg, $matches);
+                            $errorMsg = $matches[1] ?? 'Failed to update order status';
+                        }
+                        sendError($errorMsg, 500);
+                    }
+                }
+                
+                // NOTE: If status changes, trigger trg_orders_log_status_change will log it
                 $updateFields = [];
                 $params = [];
                 
-                $allowedFields = ['status', 'shipping_address', 'currency'];
+                $allowedFields = ['shipping_address', 'currency'];
                 foreach ($allowedFields as $field) {
                     if (isset($input[$field])) {
                         $updateFields[] = "$field = ?";
@@ -454,8 +615,8 @@ try {
                     }
                 }
                 
-                // CONSISTENCY: Recalculate total amount based on items
-                // Update total amount if items are provided
+                // NOTE: If items are updated, triggers will automatically recalculate total_amount
+                // We can still set it manually here, but triggers will ensure it matches sum of order_items
                 if (isset($input['items'])) {
                     $totalAmount = 0;
                     foreach ($input['items'] as $item) {
@@ -475,14 +636,19 @@ try {
                 // ATOMICITY: Order items update within same transaction
                 // CONSISTENCY: Deletes old items, then inserts new items (maintains referential integrity)
                 // Handle order items update
+                // NOTE: Triggers will automatically:
+                // 1. Calculate subtotal if NULL (trg_order_items_calculate_subtotal)
+                // 2. Update order total_amount when items are deleted/inserted (trg_order_items_update_order_total_*)
                 if (isset($input['items'])) {
                     // ATOMICITY: Order items deletion within transaction
                     // Delete current order items (order is already locked above)
+                    // NOTE: Trigger trg_order_items_update_order_total_delete will update order total
                     $stmt = $pdo->prepare("DELETE FROM order_items WHERE order_id = ?");
                     $stmt->execute([$orderIdParam]);
                     
                     // ATOMICITY: Order items insertion within same transaction
                     // Insert new order items
+                    // NOTE: Triggers will automatically calculate subtotal and update order total
                     $stmt = $pdo->prepare("
                         INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal) 
                         VALUES (?, ?, ?, ?, ?)
@@ -509,6 +675,7 @@ try {
                 
                 // Commit transaction - all changes are now permanent
                 $pdo->exec("COMMIT");
+                clearAuditUserId($pdo); // Clear audit user ID after transaction
                 
                 // Get updated order with user details
                 $stmt = $pdo->prepare("
@@ -566,93 +733,27 @@ try {
                 sendError('Order ID required', 400);
             }
             
-            // ATOMICITY: Start transaction - all operations succeed or all fail
-            $pdo->exec("START TRANSACTION");
-            
+            // Cancel order using stored procedure
+            // The stored procedure handles: validation, stock restoration, status update, and payment refund
             try {
-                // ISOLATION: Row-level locking prevents concurrent order modifications
-                // CONSISTENCY: Validate order exists
-                // Check if order exists WITH ROW-LEVEL LOCKING
-                $stmt = $pdo->prepare("
-                    SELECT order_id, status, branch_id 
-                    FROM orders 
-                    WHERE order_id = ? 
-                    FOR UPDATE
-                ");
-                $stmt->execute([$orderIdParam]);
-                $order = $stmt->fetch();
+                // Use stored procedure to cancel order
+                // sp_cancel_order handles all validation, stock restoration, and status updates
+                $message = callStoredProcedureMessage($pdo, 'sp_cancel_order', [
+                    $orderIdParam,
+                    $userId
+                ]);
                 
-                if (!$order) {
-                    $pdo->exec("ROLLBACK");
-                    sendError('Order not found', 404);
-                }
-                
-                // CONSISTENCY: Enforce business rule - cannot cancel delivered/cancelled orders
-                // Check if order can be cancelled
-                if (in_array($order['status'], ['delivered', 'cancelled'])) {
-                    $pdo->exec("ROLLBACK");
-                    sendError('Cannot cancel order with status: ' . $order['status'], 400);
-                }
-                
-                // CONSISTENCY: Check payment status to determine if stock restoration needed
-                // Get payment status
-                $paymentStmt = $pdo->prepare("SELECT payment_status FROM payments WHERE order_id = ?");
-                $paymentStmt->execute([$orderIdParam]);
-                $payment = $paymentStmt->fetch();
-                
-                // CONSISTENCY: Restore stock if payment was completed (stock was deducted)
-                // ATOMICITY: Stock restoration within same transaction
-                // If payment was completed, restore stock
-                if ($payment && $payment['payment_status'] === 'completed') {
-                    // Get order items
-                    $itemsStmt = $pdo->prepare("
-                        SELECT product_id, quantity 
-                        FROM order_items 
-                        WHERE order_id = ?
-                    ");
-                    $itemsStmt->execute([$orderIdParam]);
-                    $items = $itemsStmt->fetchAll();
-                    
-                    // Restore stock for each item
-                    foreach ($items as $item) {
-                        $restoreStmt = $pdo->prepare("
-                            UPDATE product_inventory 
-                            SET stock_qty = stock_qty + ? 
-                            WHERE product_id = ? AND branch_id = ?
-                        ");
-                        $restoreStmt->execute([
-                            $item['quantity'],
-                            $item['product_id'],
-                            $order['branch_id']
-                        ]);
-                    }
-                }
-                
-                // ATOMICITY: Order status update within transaction
-                // Update order status to cancelled
-                $stmt = $pdo->prepare("UPDATE orders SET status = 'cancelled' WHERE order_id = ?");
-                $stmt->execute([$orderIdParam]);
-                
-                // CONSISTENCY: Update payment status to reflect refund
-                // ATOMICITY: Payment status update within same transaction
-                // Update payment status if exists
-                if ($payment) {
-                    $paymentUpdateStmt = $pdo->prepare("
-                        UPDATE payments 
-                        SET payment_status = 'refunded' 
-                        WHERE order_id = ?
-                    ");
-                    $paymentUpdateStmt->execute([$orderIdParam]);
-                }
-                
-                // DURABILITY: COMMIT ensures all changes are permanently saved
-                $pdo->exec("COMMIT");
-                sendResponse(null, 'Order cancelled successfully');
-            } catch (Exception $e) {
-                // ATOMICITY: Rollback ensures no partial state on error
-                $pdo->exec("ROLLBACK");
+                sendResponse(null, $message ?? 'Order cancelled successfully');
+            } catch (PDOException $e) {
                 error_log('Order cancellation error: ' . $e->getMessage());
-                sendError('Failed to cancel order: ' . $e->getMessage(), 500);
+                // Extract error message from SQLSTATE
+                $errorMsg = $e->getMessage();
+                if (strpos($errorMsg, 'SQLSTATE[45000]') !== false) {
+                    // Custom error from stored procedure
+                    preg_match('/SQLSTATE\[45000\]:\s*(.+)/', $errorMsg, $matches);
+                    $errorMsg = $matches[1] ?? 'Failed to cancel order';
+                }
+                sendError($errorMsg, 500);
             }
             break;
             

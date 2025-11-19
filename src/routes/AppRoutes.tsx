@@ -41,6 +41,7 @@ import AdminUsers from '../pages/AdminUsers'
 import AdminCategories from '../pages/AdminCategories'
 import AdminGenres from '../pages/AdminGenres'
 import AdminBranches from '../pages/AdminBranches'
+import AdminViews from '../pages/AdminViews'
 import AdminRoute from '../components/AdminRoute'
 import { AdminNotificationProvider } from '../context/AdminNotificationContext'
 import StaffLogin from '../pages/StaffLogin'
@@ -119,6 +120,14 @@ function AppRoutes() {
         <AdminRoute>
           <AdminNotificationProvider>
             <AdminBranches />
+          </AdminNotificationProvider>
+        </AdminRoute>
+      } />
+      
+      <Route path="/admin/views" element={
+        <AdminRoute>
+          <AdminNotificationProvider>
+            <AdminViews />
           </AdminNotificationProvider>
         </AdminRoute>
       } />

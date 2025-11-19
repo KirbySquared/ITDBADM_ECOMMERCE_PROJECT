@@ -221,6 +221,14 @@ switch ($path) {
         }
         break;
         
+    case 'admin/views':
+        if ($method === 'GET') {
+            include 'admin/views.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
     case 'admin':
     case 'admin/login':
     case 'admin/check_auth':

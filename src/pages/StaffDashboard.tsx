@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import StaffLayout from '../components/StaffLayout'
 import { useStaffAuth } from '../hooks/useStaffAuth'
+import { useCurrency } from '../context/CurrencyContext'
 import { formatPrice } from '../utils/currency'
 import './AdminDashboard.css'
 
@@ -36,10 +37,12 @@ function StaffDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const { user } = useStaffAuth()
+  const { currency } = useCurrency()
 
   useEffect(() => {
     fetchDashboardData()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency])
 
   const fetchDashboardData = async () => {
     try {
@@ -50,7 +53,7 @@ function StaffDashboard() {
         return
       }
 
-      const response = await fetch('http://localhost:8000/api/staff/dashboard', {
+      const response = await fetch(`http://localhost:8000/api/staff/dashboard?currency=${currency}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'

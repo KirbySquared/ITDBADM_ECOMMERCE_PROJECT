@@ -1,0 +1,52 @@
+.admin-analytics-page {
+  min-height: 100vh;
+}
+
+.admin-analytics-page .card {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: none;
+  margin-bottom: 1.5rem;
+}
+
+.admin-analytics-page .card-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-bottom: none;
+  padding: 1rem 1.5rem;
+}
+
+.admin-analytics-page .card-header h5 {
+  margin: 0;
+  font-weight: 600;
+}
+
+.admin-analytics-page .chart-container {
+  position: relative;
+  height: 350px;
+  width: 100%;
+  padding: 1rem;
+}
+
+.admin-analytics-page .form-control {
+  max-width: 200px;
+}
+
+.admin-analytics-page .row {
+  margin-bottom: 2rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .admin-analytics-page .chart-container {
+    height: 250px;
+  }
+  
+  .admin-analytics-page .d-flex.gap-2 {
+    flex-direction: column;
+  }
+  
+  .admin-analytics-page .form-control {
+    max-width: 100%;
+  }
+}
+

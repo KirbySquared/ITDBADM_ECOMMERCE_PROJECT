@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import AdminLayout from '../components/AdminLayout'
 import AdminOrderModal from '../components/AdminOrderModal'
+import { useCurrency } from '../context/CurrencyContext'
 import { formatPrice } from '../utils/currency'
 
 interface OrderItem {
@@ -44,6 +45,7 @@ interface Order {
 }
 
 function AdminOrders() {
+  const { currency } = useCurrency()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,7 +64,7 @@ function AdminOrders() {
 
   useEffect(() => {
     fetchOrders()
-  }, [currentPage, statusFilter])
+  }, [currentPage, statusFilter, currency]) // Refetch when currency changes
 
   const fetchOrders = async () => {
     setLoading(true)
@@ -72,6 +74,7 @@ function AdminOrders() {
       const params = new URLSearchParams({
         page: currentPage.toString(),
         limit: '10',
+        currency: currency, // Pass currency to API
         ...(searchTerm && { search: searchTerm }),
         ...(statusFilter !== 'all' && { status: statusFilter }),
         ...(dateFrom && { date_from: dateFrom }),
@@ -106,7 +109,7 @@ function AdminOrders() {
   const fetchOrderDetails = async (orderId: number) => {
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch(`http://localhost:8000/api/admin/orders/${orderId}`, {
+      const response = await fetch(`http://localhost:8000/api/admin/orders/${orderId}?currency=${encodeURIComponent(currency)}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'

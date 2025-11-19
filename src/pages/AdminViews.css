@@ -1,0 +1,38 @@
+.admin-views-page {
+  min-height: 100vh;
+}
+
+.admin-views-page .table {
+  font-size: 0.9rem;
+}
+
+.admin-views-page .table th {
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.admin-views-page .table td {
+  vertical-align: middle;
+}
+
+.admin-views-page .table code {
+  font-size: 0.8rem;
+  background-color: #f8f9fa;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.admin-views-page .card {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.admin-views-page .form-select,
+.admin-views-page .form-control {
+  font-size: 0.9rem;
+}
+
+.admin-views-page .pagination {
+  margin-top: 2rem;
+}
+

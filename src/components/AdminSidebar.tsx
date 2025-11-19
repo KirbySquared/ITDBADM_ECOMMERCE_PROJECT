@@ -87,6 +87,14 @@ function AdminSidebar({ currentPath }: AdminSidebarProps) {
           <i className="bi bi-shop me-2"></i>
           Branches
         </Link>
+        
+        <Link 
+          to="/admin/views" 
+          className={`nav-link ${activePath.startsWith('/admin/views') ? 'active' : ''}`}
+        >
+          <i className="bi bi-bar-chart me-2"></i>
+          Views & Reports
+        </Link>
       </nav>
     </div>
   )

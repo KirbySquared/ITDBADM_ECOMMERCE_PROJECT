@@ -47,6 +47,7 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 
 // Get authorization header
 $headers = getallheaders();
@@ -76,6 +77,18 @@ try {
         sendError('Admin access required', 403);
     }
     
+    // Get currency parameter (default PHP)
+    $currency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+    if (!isValidCurrencyCode($currency)) {
+        $currency = 'PHP';
+    }
+    
+    // Get exchange rate from API for currency conversion
+    $rate = getExchangeRateFromAPI($currency);
+    if ($rate === null) {
+        $rate = 1.0; // Fallback to PHP if API fails
+    }
+    
     // Get dashboard statistics
     $stats = [];
     
@@ -91,19 +104,89 @@ try {
     $stmt = $pdo->query("SELECT COUNT(*) as total FROM orders");
     $stats['totalOrders'] = $stmt->fetch()['total'];
     
-    // Total revenue
-    $stmt = $pdo->query("SELECT SUM(total_amount) as total FROM orders WHERE status != 'cancelled'");
-    $stats['totalRevenue'] = $stmt->fetch()['total'] ?? 0;
-    
-    // Recent orders
+    // Total revenue - convert from stored currency to requested currency
+    // Orders store amounts in their original currency, need to convert each
     $stmt = $pdo->query("
-        SELECT o.*, u.first_name, u.last_name, u.email 
+        SELECT 
+            o.total_amount,
+            o.currency as order_currency,
+            COALESCE(ocs.rate_to_php, NULL) as order_rate_to_php
+        FROM orders o
+        LEFT JOIN order_currency_snapshots ocs ON o.order_id = ocs.order_id
+        WHERE o.status != 'cancelled'
+    ");
+    $revenueRows = $stmt->fetchAll();
+    
+    $totalRevenueInPhp = 0;
+    foreach ($revenueRows as $row) {
+        $amountInPhp = $row['total_amount'];
+        $orderCurrency = $row['order_currency'] ?? 'PHP';
+        
+        // Convert from order currency to PHP first
+        if ($orderCurrency !== 'PHP') {
+            if ($row['order_rate_to_php'] && $row['order_rate_to_php'] > 0) {
+                // Use historical rate from snapshot if available
+                // order_rate_to_php is rate FROM PHP TO order currency
+                // So to convert FROM order currency TO PHP: amount / rate
+                $amountInPhp = $row['total_amount'] / $row['order_rate_to_php'];
+            } else {
+                // No snapshot, use current rate (fallback)
+                $currentRate = getExchangeRateFromAPI($orderCurrency);
+                if ($currentRate && $currentRate > 0) {
+                    $amountInPhp = $row['total_amount'] / $currentRate;
+                }
+                // If rate is null or 0, assume amount is already in PHP
+            }
+        }
+        $totalRevenueInPhp += $amountInPhp;
+    }
+    
+    // Convert total revenue from PHP to requested currency
+    $stats['totalRevenue'] = convertPriceFromPhp($totalRevenueInPhp, $currency);
+    $stats['currency'] = $currency; // Include currency in response
+    
+    // Recent orders - convert amounts to requested currency
+    $stmt = $pdo->query("
+        SELECT 
+            o.*, 
+            u.first_name, 
+            u.last_name, 
+            u.email,
+            COALESCE(ocs.rate_to_php, NULL) as order_rate_to_php
         FROM orders o 
         JOIN users u ON o.user_id = u.user_id 
+        LEFT JOIN order_currency_snapshots ocs ON o.order_id = ocs.order_id
         ORDER BY o.order_date DESC 
         LIMIT 10
     ");
-    $stats['recentOrders'] = $stmt->fetchAll();
+    $recentOrders = $stmt->fetchAll();
+    
+    // Convert each order's total_amount to requested currency
+    foreach ($recentOrders as &$order) {
+        $amountInPhp = $order['total_amount'];
+        $orderCurrency = $order['currency'] ?? 'PHP';
+        
+        // Convert from order currency to PHP first (if different)
+        if ($orderCurrency !== 'PHP') {
+            if ($order['order_rate_to_php'] && $order['order_rate_to_php'] > 0) {
+                // Use historical rate from snapshot if available
+                $amountInPhp = $order['total_amount'] / $order['order_rate_to_php'];
+            } else {
+                // No snapshot, use current rate (fallback)
+                $currentRate = getExchangeRateFromAPI($orderCurrency);
+                if ($currentRate && $currentRate > 0) {
+                    $amountInPhp = $order['total_amount'] / $currentRate;
+                }
+                // If rate is null or 0, assume amount is already in PHP
+            }
+        }
+        // Convert to requested currency
+        $order['total_amount'] = convertPriceFromPhp($amountInPhp, $currency);
+        $order['currency'] = $currency; // Update currency in response
+    }
+    unset($order); // Break reference
+    
+    $stats['recentOrders'] = $recentOrders;
     
     // Low stock products - aggregate stock across all branches
     $stmt = $pdo->query("

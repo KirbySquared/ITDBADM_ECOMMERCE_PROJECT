@@ -55,6 +55,7 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/currency_api.php';
+require_once __DIR__ . '/../../utils/audit_helper.php';
 
 header('Content-Type: application/json');
 
@@ -170,6 +171,9 @@ try {
     // - DURABILITY: Once COMMIT, changes are permanent even if system crashes
     $pdo->exec("START TRANSACTION");
     
+    // Set audit user ID for triggers (for transaction logging)
+    setAuditUserId($pdo, $userId);
+    
     try {
         // ISOLATION: Row-level locking prevents concurrent stock modifications
         // CONSISTENCY: Validate stock availability BEFORE creating order
@@ -273,6 +277,8 @@ try {
         // ATOMICITY: Order creation within transaction
         // CONSISTENCY: Validates user, currency, branch before creating order
         // 2. Create order (include branch_id)
+        // NOTE: total_amount will be automatically recalculated by triggers when order_items are inserted
+        // We set initial total_amount here, but triggers will update it to match sum of order_items
         $stmt = $pdo->prepare("
             INSERT INTO orders (user_id, total_amount, currency, status, shipping_address, branch_id)
             VALUES (?, ?, ?, 'pending', ?, ?)
@@ -280,16 +286,23 @@ try {
         $stmt->execute([$userId, $totalAmount, $currency, $shippingAddress, $branchId]);
         $orderId = $pdo->lastInsertId();
         
+        // After order_items are inserted, triggers will update orders.total_amount automatically
+        // We'll fetch the updated total_amount after all items are inserted
+        
         // ATOMICITY: Order items creation within same transaction
         // 3. Create order items (connected to cart via cart_id tracking)
         // Each order_item corresponds to a cart item, maintaining the cart → order connection
+        // NOTE: Triggers will automatically calculate subtotal if NULL, but we calculate it here for consistency
         foreach ($items as $item) {
             $productId = (int)$item['product_id'];
             $quantity = (int)$item['quantity'];
             $unitPrice = (float)$item['unit_price'];
-            $subtotal = $unitPrice * $quantity;
+            $subtotal = $unitPrice * $quantity; // Calculate here, trigger will verify/override if needed
             $cartId = isset($requestItemMap[$productId]) ? $requestItemMap[$productId]['cart_id'] : null;
             
+            // Triggers will automatically:
+            // 1. Calculate subtotal if NULL (trg_order_items_calculate_subtotal)
+            // 2. Update order total_amount (trg_order_items_update_order_total_insert)
             $stmt = $pdo->prepare("
                 INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
                 VALUES (?, ?, ?, ?, ?)
@@ -303,6 +316,7 @@ try {
         // ATOMICITY: Payment record creation within same transaction
         // CONSISTENCY: Payment status matches payment method
         // 4. Create payment record (status: pending initially, will be completed after payment simulation)
+        // NOTE: Trigger trg_payments_log_insert will log payment creation to transaction_log
         $paymentStatus = ($paymentMethod === 'cod') ? 'pending' : 'pending'; // All start as pending
         $stmt = $pdo->prepare("
             INSERT INTO payments (order_id, payment_method, payment_status, amount, currency, transaction_id)
@@ -337,6 +351,7 @@ try {
         // In production, this would integrate with payment gateway
         if ($paymentMethod !== 'cod') {
             // Simulate successful payment
+            // NOTE: Trigger trg_payments_log_update will log payment status change to transaction_log
             $stmt = $pdo->prepare("
                 UPDATE payments 
                 SET payment_status = 'completed', payment_date = NOW()
@@ -345,6 +360,7 @@ try {
             $stmt->execute([$orderId]);
             
             // Update order status
+            // NOTE: Trigger trg_orders_log_status_change will log this status change to transaction_log
             $stmt = $pdo->prepare("
                 UPDATE orders 
                 SET status = 'processing'

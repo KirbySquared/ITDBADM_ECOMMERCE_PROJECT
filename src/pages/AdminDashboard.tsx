@@ -31,6 +31,9 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import AdminLayout from '../components/AdminLayout'
+import { useCurrency } from '../context/CurrencyContext'
+import { formatPrice } from '../utils/currency'
+import AdminAnalytics from './AdminAnalytics'
 import './AdminDashboard.css'
 
 interface DashboardStats {
@@ -38,12 +41,14 @@ interface DashboardStats {
   totalProducts: number
   totalOrders: number
   totalRevenue: number
+  currency?: string
   recentOrders: Array<{
     order_id: number
     first_name: string
     last_name: string
     email: string
     total_amount: number
+    currency?: string
     status: string
     created_at: string
   }>
@@ -56,13 +61,15 @@ interface DashboardStats {
 }
 
 function AdminDashboard() {
+  const { currency } = useCurrency()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [showAnalytics, setShowAnalytics] = useState(false)
 
   useEffect(() => {
     fetchDashboardData()
-  }, [])
+  }, [currency]) // Refetch when currency changes
 
   const fetchDashboardData = async () => {
     try {
@@ -73,7 +80,7 @@ function AdminDashboard() {
         return
       }
 
-      const response = await fetch('http://localhost:8000/api/admin/dashboard', {
+      const response = await fetch(`http://localhost:8000/api/admin/dashboard?currency=${encodeURIComponent(currency)}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -131,8 +138,23 @@ function AdminDashboard() {
     <AdminLayout>
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2>Dashboard Overview</h2>
-        <span className="text-muted">Welcome, Admin</span>
+        <div className="d-flex gap-2 align-items-center">
+          <button
+            className="btn btn-outline-primary"
+            onClick={() => setShowAnalytics(!showAnalytics)}
+          >
+            <i className={`bi bi-${showAnalytics ? 'x' : 'graph-up'} me-2`}></i>
+            {showAnalytics ? 'Hide Analytics' : 'Show Analytics & Reports'}
+          </button>
+          <span className="text-muted">Welcome, Admin</span>
+        </div>
       </div>
+
+      {showAnalytics && (
+        <div className="mb-4">
+          <AdminAnalytics />
+        </div>
+      )}
 
       {/* Statistics Cards */}
       <div className="row mb-4">
@@ -183,7 +205,7 @@ function AdminDashboard() {
             <div className="card-body">
               <div className="d-flex justify-content-between">
                 <div>
-                  <h4>${Number(stats?.totalRevenue || 0).toLocaleString()}</h4>
+                  <h4>{formatPrice(stats?.totalRevenue || 0, stats?.currency || currency)}</h4>
                   <p className="mb-0">Total Revenue</p>
                 </div>
                 <i className="bi bi-currency-dollar fs-1"></i>
@@ -217,7 +239,7 @@ function AdminDashboard() {
                       <tr key={order.order_id}>
                         <td>#{order.order_id}</td>
                         <td>{order.first_name} {order.last_name}</td>
-                        <td>${Number(order.total_amount).toFixed(2)}</td>
+                        <td>{formatPrice(order.total_amount, order.currency || currency)}</td>
                         <td>
                           <span className={`badge bg-${
                             order.status === 'delivered' ? 'success' : 
