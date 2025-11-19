@@ -13,6 +13,7 @@ interface PcBuilderProduct {
   brand: string
   model?: string
   price: number
+  price_php?: number // Base price in PHP
   currency: string
   primary_image_url?: string
 }
@@ -89,9 +90,36 @@ useEffect(() => {
     [selected]
   )
 
+  // Calculate subtotal: sum converted prices for display
+  // Backend will recalculate from base prices (PHP) for accuracy
   const totalPrice = useMemo(() => {
+    // Sum converted prices for display (p.price is already in selected currency)
     return selectedProducts.reduce((sum, p) => sum + (p.price || 0), 0)
   }, [selectedProducts])
+
+  // Calculate discount based on number of selected components
+  // 10% discount if at least 5 components selected (but not all 9)
+  // 20% discount if all 9 components selected
+  const discountInfo = useMemo(() => {
+    const selectedCount = selectedProducts.length
+    const totalCategories = categories.length
+    let discountPercent = 0
+    
+    if (selectedCount === totalCategories && totalCategories === 9) {
+      discountPercent = 20 // 20% discount for all 9 components
+    } else if (selectedCount >= 5 && selectedCount < totalCategories) {
+      discountPercent = 10 // 10% discount for 5+ components (but not all 9)
+    }
+    
+    const discountAmount = (totalPrice * discountPercent) / 100
+    const finalPrice = totalPrice - discountAmount
+    
+    return {
+      discountPercent,
+      discountAmount,
+      finalPrice
+    }
+  }, [selectedProducts.length, totalPrice, categories.length])
 
   const handleSelect = (categoryId: number, productId: number | '') => {
     setSelected(prev => {
@@ -123,44 +151,71 @@ useEffect(() => {
 
     setSaving(true)
     try {
-      // Add each component as quantity 1
-      for (const product of selectedProducts) {
-        const res = await fetch(api('/cart'), {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            product_id: product.product_id,
-            quantity: 1, // 1 component per category
-          }),
-        })
-
-        const text = await res.text()
-        let json: any = {}
-        try {
-          json = text ? JSON.parse(text) : {}
-        } catch {
-          // ignore parse error, will fall back to generic message
+      // Prepare build items with category information
+      // Use base price (PHP) for unit_price, backend will convert
+      const buildItems = selectedProducts.map(product => {
+        const category = categories.find(cat => 
+          cat.products.some(p => p.product_id === product.product_id)
+        )
+        // Use base price in PHP for calculation
+        const basePrice = (product as any).price_php || product.price || 0
+        return {
+          product_id: product.product_id,
+          quantity: 1,
+          unit_price: basePrice, // Send base price in PHP
+          category_id: category?.category_id || null,
+          category_name: category?.category_name || null
         }
+      })
+      
+      // Calculate subtotal in PHP (sum of base prices)
+      const subtotalInPhp = buildItems.reduce((sum, item) => sum + item.unit_price, 0)
+      
+      // Calculate discount in PHP
+      const discountAmountInPhp = (subtotalInPhp * discountInfo.discountPercent) / 100
+      const totalAmountInPhp = subtotalInPhp - discountAmountInPhp
 
-        if (!res.ok || json?.success === false) {
-          // Handle expired token
-          if (res.status === 401) {
-            localStorage.removeItem('token')
-            showError('Your session has expired. Please log in again.')
-            navigate('/login')
-            return
-          }
-          
-          const msg =
-            json?.message ||
-            (typeof json === 'string' ? json : '') ||
-            `Failed to add ${product.product_name} to cart (HTTP ${res.status})`
-          throw new Error(msg)
+      // Add build as a single bundle to cart
+      const res = await fetch(api('/cart/pc-builder-build'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          items: buildItems,
+          discount_percent: discountInfo.discountPercent,
+          discount_amount: discountAmountInPhp, // Discount in PHP
+          subtotal: subtotalInPhp, // Subtotal in PHP
+          total_amount: totalAmountInPhp, // Total in PHP
+          currency: currency, // Requested currency for conversion
+          build_name: `Custom PC Build (${selectedProducts.length} components)`
+        }),
+      })
+
+      const text = await res.text()
+      let json: any = {}
+      try {
+        json = text ? JSON.parse(text) : {}
+      } catch {
+        // ignore parse error, will fall back to generic message
+      }
+
+      if (!res.ok || json?.success === false) {
+        // Handle expired token
+        if (res.status === 401) {
+          localStorage.removeItem('token')
+          showError('Your session has expired. Please log in again.')
+          navigate('/login')
+          return
         }
+        
+        const msg =
+          json?.message ||
+          (typeof json === 'string' ? json : '') ||
+          `Failed to add build to cart (HTTP ${res.status})`
+        throw new Error(msg)
       }
 
       showSuccess('Your custom PC build has been added to cart!')
@@ -357,11 +412,40 @@ useEffect(() => {
                         )
                       })}
                     </ul>
-                    <div className="d-flex justify-content-between mb-3">
-                      <span className="fw-semibold">Total</span>
-                      <span className="fw-bold fs-5">
-                        {formatPrice(totalPrice, currency)}
-                      </span>
+                    <div className="border-top pt-3">
+                      <div className="d-flex justify-content-between mb-2">
+                        <span className="text-muted">Subtotal:</span>
+                        <span className="fw-semibold">
+                          {formatPrice(totalPrice, currency)}
+                        </span>
+                      </div>
+                      {discountInfo.discountPercent > 0 && (
+                        <>
+                          <div className="d-flex justify-content-between mb-2">
+                            <span className="text-success">
+                              <i className="bi bi-tag-fill me-1"></i>
+                              Discount ({discountInfo.discountPercent}%):
+                            </span>
+                            <span className="fw-semibold text-success">
+                              -{formatPrice(discountInfo.discountAmount, currency)}
+                            </span>
+                          </div>
+                          <div className="alert alert-success py-2 px-3 mb-2">
+                            <small>
+                              <i className="bi bi-info-circle me-1"></i>
+                              {discountInfo.discountPercent === 20 
+                                ? 'Complete build discount applied!' 
+                                : 'Multi-component discount applied!'}
+                            </small>
+                          </div>
+                        </>
+                      )}
+                      <div className="d-flex justify-content-between mb-3 pt-2 border-top">
+                        <span className="fw-bold fs-5">Total:</span>
+                        <span className="fw-bold fs-5 text-primary">
+                          {formatPrice(discountInfo.finalPrice, currency)}
+                        </span>
+                      </div>
                     </div>
                   </>
                 )}

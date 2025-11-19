@@ -22,14 +22,43 @@ interface CartItem {
   line_total_display?: number
 }
 
+interface PcBuilderBuildItem {
+  cart_id: number
+  product_id: number
+  quantity: number
+  product_name: string
+  brand: string
+  model?: string
+  price: number
+  display_price?: number
+  line_total_display?: number
+  stock_quantity?: number | null
+  category_name?: string
+  primary_image_url?: string
+}
+
+interface PcBuilderBuild {
+  build_id: number
+  build_name: string
+  discount_percent: number
+  discount_amount: number
+  subtotal: number
+  total_amount: number
+  currency: string
+  items: PcBuilderBuildItem[]
+}
+
 function Cart() {
   const { currency } = useCurrency()
   const [cartItems, setCartItems] = useState<CartItem[]>([])
+  const [builds, setBuilds] = useState<PcBuilderBuild[]>([])
+  const [expandedBuilds, setExpandedBuilds] = useState<Set<number>>(new Set())
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<number | null>(null)
   const [locking, setLocking] = useState(false)
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set())
+  const [selectedBuilds, setSelectedBuilds] = useState<Set<number>>(new Set())
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -44,12 +73,13 @@ function Cart() {
     // refetch when currency changes
   }, [currency]) //  important: refetch when currency changes
 
-  // Auto-select all items when cart loads
+  // Auto-select all items and builds when cart loads
   useEffect(() => {
-    if (cartItems.length > 0 && selectedItems.size === 0) {
+    if ((cartItems.length > 0 || builds.length > 0) && selectedItems.size === 0 && selectedBuilds.size === 0) {
       setSelectedItems(new Set(cartItems.map(item => item.cart_id)))
+      setSelectedBuilds(new Set(builds.map(build => build.build_id)))
     }
-  }, [cartItems])
+  }, [cartItems, builds])
 
   const fetchCart = async () => {
     setLoading(true)
@@ -75,14 +105,16 @@ function Cart() {
         if (data?.success) {
           const apiCurrency = data.data?.currency || 'PHP'
           const rawItems = data.data?.items || []
+          const rawBuilds = data.data?.builds || []
           
           console.log('Cart fetched successfully:', {
             itemCount: rawItems.length,
+            buildCount: rawBuilds.length,
             currency: apiCurrency,
             total: data.data?.total
           })
 
-          // Map backend fields → what the UI expects
+          // Map backend fields → what the UI expects for standalone items
           const mapped: CartItem[] = rawItems.map((it: any) => ({
             cart_id: Number(it.cart_id),
             product_id: Number(it.product_id),
@@ -100,7 +132,33 @@ function Cart() {
             line_total_display: it.line_total_display ? Number(it.line_total_display) : undefined,
           }))
 
+          // Map PC builder builds
+          const mappedBuilds: PcBuilderBuild[] = rawBuilds.map((build: any) => ({
+            build_id: Number(build.build_id),
+            build_name: build.build_name || 'Custom PC Build',
+            discount_percent: Number(build.discount_percent || 0),
+            discount_amount: Number(build.discount_amount || 0),
+            subtotal: Number(build.subtotal || 0),
+            total_amount: Number(build.total_amount || 0),
+            currency: build.currency || apiCurrency,
+            items: (build.items || []).map((item: any) => ({
+              cart_id: Number(item.cart_id),
+              product_id: Number(item.product_id),
+              quantity: Number(item.quantity),
+              product_name: item.product_name,
+              brand: item.brand,
+              model: item.model,
+              price: Number(item.display_price ?? item.price ?? 0),
+              display_price: item.display_price ? Number(item.display_price) : undefined,
+              line_total_display: item.line_total_display ? Number(item.line_total_display) : undefined,
+              stock_quantity: item.stock_quantity ? Number(item.stock_quantity) : null,
+              category_name: item.category_name,
+              primary_image_url: item.primary_image_url
+            }))
+          }))
+
           setCartItems(mapped)
+          setBuilds(mappedBuilds)
           setTotal(Number(data.data?.total || 0))
         } else {
           console.error('Cart error:', data?.message || 'Unknown error')
@@ -203,14 +261,77 @@ function Cart() {
     }
   }
 
+  const removeBuild = async (buildId: number) => {
+    setUpdating(buildId)
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return navigate('/login')
+
+      const build = builds.find(b => b.build_id === buildId)
+      if (!build) return
+
+      // Remove all items in the build
+      const removePromises = build.items.map(item =>
+        fetch('http://localhost:8000/api/cart', {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ cart_id: item.cart_id })
+        })
+      )
+
+      await Promise.all(removePromises)
+      fetchCart()
+      window.dispatchEvent(new Event('cartUpdated'))
+      setSelectedBuilds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(buildId)
+        return newSet
+      })
+    } catch (err) {
+      console.error('Error removing build:', err)
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  const toggleBuildExpansion = (buildId: number) => {
+    setExpandedBuilds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(buildId)) {
+        newSet.delete(buildId)
+      } else {
+        newSet.add(buildId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleBuildSelection = (buildId: number) => {
+    setSelectedBuilds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(buildId)) {
+        newSet.delete(buildId)
+      } else {
+        newSet.add(buildId)
+      }
+      return newSet
+    })
+  }
+
   const getCurrency = () => cartItems[0]?.currency || currency || 'PHP'
 
-  // Get selected items
+  // Get selected items and builds
   const selectedProducts = cartItems.filter(item => selectedItems.has(item.cart_id))
+  const selectedBuildsList = builds.filter(build => selectedBuilds.has(build.build_id))
 
-  // Calculate total for selected items only
+  // Calculate total for selected items and builds only
   const selectedTotal = selectedProducts.reduce((sum, item) => {
     return sum + (item.price * item.quantity)
+  }, 0) + selectedBuildsList.reduce((sum, build) => {
+    return sum + build.total_amount
   }, 0)
 
   // Toggle item selection
@@ -228,10 +349,15 @@ function Cart() {
 
   // Select/Deselect all
   const toggleSelectAll = () => {
-    if (selectedItems.size === cartItems.length) {
+    const allItemsSelected = selectedItems.size === cartItems.length
+    const allBuildsSelected = selectedBuilds.size === builds.length
+    
+    if (allItemsSelected && allBuildsSelected) {
       setSelectedItems(new Set())
+      setSelectedBuilds(new Set())
     } else {
       setSelectedItems(new Set(cartItems.map(item => item.cart_id)))
+      setSelectedBuilds(new Set(builds.map(build => build.build_id)))
     }
   }
 
@@ -250,10 +376,10 @@ function Cart() {
     })
   }, [cartItems])
 
-  // Currency lock + navigate to checkout with selected items
+  // Currency lock + navigate to checkout with selected items and builds
   const lockRateAndGo = async () => {
-    if (selectedProducts.length === 0) {
-      alert('Please select at least one item to checkout.')
+    if (selectedProducts.length === 0 && selectedBuildsList.length === 0) {
+      alert('Please select at least one item or build to checkout.')
       return
     }
     setLocking(true)
@@ -282,8 +408,17 @@ function Cart() {
 
       const data = await res.json()
       sessionStorage.setItem('checkout_lock', JSON.stringify(data.data))
-      // Store selected cart IDs for checkout page to filter
-      sessionStorage.setItem('checkout_selected_items', JSON.stringify(Array.from(selectedItems)))
+      // Store selected cart IDs and build IDs for checkout page to filter
+      const selectedCartIds = Array.from(selectedItems)
+      const selectedBuildIds = Array.from(selectedBuilds)
+      // Get all cart IDs from selected builds
+      selectedBuildsList.forEach(build => {
+        build.items.forEach(item => {
+          selectedCartIds.push(item.cart_id)
+        })
+      })
+      sessionStorage.setItem('checkout_selected_items', JSON.stringify(selectedCartIds))
+      sessionStorage.setItem('checkout_selected_builds', JSON.stringify(selectedBuildIds))
       navigate('/checkout')
     } catch (e) {
       console.error(e)
@@ -308,7 +443,7 @@ function Cart() {
     )
   }
 
-  if (cartItems.length === 0) {
+  if (cartItems.length === 0 && builds.length === 0) {
     return (
       <div className="py-5">
         <div className="container">
@@ -351,15 +486,120 @@ function Cart() {
                     className="form-check-input"
                     type="checkbox"
                     id="selectAll"
-                    checked={cartItems.length > 0 && selectedItems.size === cartItems.length}
+                    checked={selectedItems.size === cartItems.length && selectedBuilds.size === builds.length}
                     onChange={toggleSelectAll}
                   />
                   <label className="form-check-label fw-semibold" htmlFor="selectAll">
-                    Select All ({selectedItems.size} of {cartItems.length})
+                    Select All ({selectedItems.size + selectedBuilds.size} of {cartItems.length + builds.length})
                   </label>
                 </div>
               </div>
               <div className="card-body">
+                {/* PC Builder Builds */}
+                {builds.map(build => (
+                  <div key={build.build_id} className="mb-4 border rounded p-3 bg-light">
+                    <div className="d-flex justify-content-between align-items-start mb-2">
+                      <div className="form-check">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id={`build-${build.build_id}`}
+                          checked={selectedBuilds.has(build.build_id)}
+                          onChange={() => toggleBuildSelection(build.build_id)}
+                        />
+                        <label className="form-check-label fw-bold" htmlFor={`build-${build.build_id}`} style={{ cursor: 'pointer' }}>
+                          <i className="bi bi-pc-display me-2"></i>
+                          {build.build_name}
+                        </label>
+                      </div>
+                      <div className="text-end">
+                        <button
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={() => removeBuild(build.build_id)}
+                          disabled={updating === build.build_id}
+                        >
+                          <i className="bi bi-trash"></i> Remove Build
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="ms-4">
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                          <span className="text-muted small">
+                            {build.items.length} component{build.items.length !== 1 ? 's' : ''}
+                          </span>
+                          {build.discount_percent > 0 && (
+                            <span className="badge bg-success ms-2">
+                              {build.discount_percent}% Discount Applied
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          className="btn btn-sm btn-link text-decoration-none p-0"
+                          onClick={() => toggleBuildExpansion(build.build_id)}
+                        >
+                          {expandedBuilds.has(build.build_id) ? (
+                            <><i className="bi bi-chevron-up"></i> Hide Components</>
+                          ) : (
+                            <><i className="bi bi-chevron-down"></i> Show Components</>
+                          )}
+                        </button>
+                      </div>
+                      
+                      {expandedBuilds.has(build.build_id) && (
+                        <div className="mt-2">
+                          {build.items.map(item => (
+                            <div key={item.cart_id} className="d-flex justify-content-between align-items-center py-2 border-bottom">
+                              <div className="d-flex align-items-center">
+                                {item.primary_image_url && (
+                                  <img
+                                    src={item.primary_image_url}
+                                    alt={item.product_name}
+                                    className="rounded me-2"
+                                    style={{ width: '40px', height: '40px', objectFit: 'cover' }}
+                                  />
+                                )}
+                                <div>
+                                  <small className="fw-semibold">{item.product_name}</small>
+                                  {item.category_name && (
+                                    <small className="text-muted d-block">{item.category_name}</small>
+                                  )}
+                                </div>
+                              </div>
+                              <small className="text-muted">
+                                {formatPrice(item.display_price ?? item.price, build.currency)} × {item.quantity}
+                              </small>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
+                      <div className="mt-3 pt-2 border-top">
+                        <div className="d-flex justify-content-between align-items-center">
+                          <div>
+                            {build.discount_percent > 0 && (
+                              <div className="small text-muted">
+                                Subtotal: {formatPrice(build.subtotal, build.currency)}
+                                <br />
+                                <span className="text-success">
+                                  Discount ({build.discount_percent}%): -{formatPrice(build.discount_amount, build.currency)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-end">
+                            <strong className="fs-5 text-primary">
+                              {formatPrice(build.total_amount, build.currency)}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                {/* Standalone Items */}
                 {cartItems.map(item => (
                   <div key={item.cart_id} className="row align-items-center py-3 border-bottom">
                     <div className="col-md-1">
@@ -483,7 +723,7 @@ function Cart() {
 
                 <div className="d-flex justify-content-between mb-2">
                   <span>Selected Items:</span>
-                  <span className="fw-semibold">{selectedItems.size} item{selectedItems.size !== 1 ? 's' : ''}</span>
+                  <span className="fw-semibold">{selectedItems.size + selectedBuilds.size} item{(selectedItems.size + selectedBuilds.size) !== 1 ? 's' : ''}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-2">
                   <span>Subtotal:</span>
@@ -499,7 +739,7 @@ function Cart() {
                   <span className="fw-bold fs-5">{formatPrice(selectedTotal, getCurrency())}</span>
                 </div>
 
-                {selectedItems.size === 0 && (
+                {(selectedItems.size === 0 && selectedBuilds.size === 0) && (
                   <div className="alert alert-warning small mb-3">
                     <i className="bi bi-exclamation-triangle me-2"></i>
                     Please select at least one item to checkout.
@@ -510,9 +750,9 @@ function Cart() {
                   <button
                     className="btn btn-primary btn-lg"
                     onClick={lockRateAndGo}
-                    disabled={locking || selectedItems.size === 0}
+                    disabled={locking || (selectedItems.size === 0 && selectedBuilds.size === 0)}
                   >
-                    {locking ? 'Locking rate…' : `Proceed to Checkout (${selectedItems.size} item${selectedItems.size !== 1 ? 's' : ''})`}
+                    {locking ? 'Locking rate…' : `Proceed to Checkout (${selectedItems.size + selectedBuilds.size} item${(selectedItems.size + selectedBuilds.size) !== 1 ? 's' : ''})`}
                   </button>
                 </div>
 

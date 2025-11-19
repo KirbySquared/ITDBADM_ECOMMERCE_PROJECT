@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import EditProfileModal from '../components/EditProfileModal'
+import { useCurrency } from '../context/CurrencyContext'
 import { api } from '../api/config'
 import { formatPrice } from '../utils/currency'
 import './Profile.css'
@@ -30,6 +31,7 @@ interface Order {
 }
 
 function Profile() {
+  const { currency } = useCurrency()
   const [user, setUser] = useState<User | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const location = useLocation()
@@ -66,7 +68,17 @@ function Profile() {
     if (activeTab === 'orders') {
       fetchOrders()
     }
-  }, [activeTab])
+  }, [activeTab, currency])
+
+  // Listen for order creation events to refresh orders list
+  useEffect(() => {
+    const handleOrderCreated = () => {
+      // Always refresh orders when order is created, regardless of active tab
+      fetchOrders()
+    }
+    window.addEventListener('orderCreated', handleOrderCreated)
+    return () => window.removeEventListener('orderCreated', handleOrderCreated)
+  }, [])
 
   const fetchOrders = async () => {
     setOrdersLoading(true)
@@ -77,7 +89,7 @@ function Profile() {
         return
       }
 
-      const response = await fetch(api('/orders'), {
+      const response = await fetch(api(`/orders?currency=${encodeURIComponent(currency)}`), {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -85,16 +97,32 @@ function Profile() {
       })
 
       if (response.status === 401) {
+        // Token expired or invalid - clear and redirect to login
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
         navigate('/login')
+        return
+      }
+
+      if (!response.ok) {
+        // Handle other errors without redirecting
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Error fetching orders:', errorData.message || 'Failed to fetch orders')
+        setOrders([])
         return
       }
 
       const data = await response.json()
       if (data.success && data.data) {
         setOrders(data.data.orders || [])
+      } else {
+        // If response is not successful, set empty array
+        setOrders([])
       }
     } catch (err) {
       console.error('Error fetching orders:', err)
+      // Don't redirect on network errors, just show empty state
+      setOrders([])
     } finally {
       setOrdersLoading(false)
     }
@@ -383,7 +411,7 @@ function Profile() {
                               </span>
                             </td>
                             <td>
-                              <strong>{formatPrice(order.total_amount, order.currency)}</strong>
+                              <strong>{formatPrice(order.total_amount, currency)}</strong>
                             </td>
                             <td>{getStatusBadge(order.status)}</td>
                             <td>

@@ -163,6 +163,23 @@ try {
         $totalAmount += (float)$item['unit_price'] * (int)$item['quantity'];
     }
     
+    // Apply PC Builder discount if provided
+    $discountAmount = 0.0;
+    if (isset($input['discount']) && is_array($input['discount']) && $input['discount']['type'] === 'pc_builder') {
+        $discountPercent = (float)($input['discount']['percent'] ?? 0);
+        $discountAmount = (float)($input['discount']['amount'] ?? 0);
+        
+        // Validate discount (10% or 20% for PC builder)
+        if ($discountPercent > 0 && ($discountPercent === 10 || $discountPercent === 20)) {
+            // Recalculate discount based on actual total to ensure accuracy
+            $discountAmount = ($totalAmount * $discountPercent) / 100;
+            $totalAmount = $totalAmount - $discountAmount;
+        } else {
+            // Invalid discount, ignore it
+            $discountAmount = 0.0;
+        }
+    }
+    
     // ATOMICITY: Start transaction - all operations succeed or all fail
     // This ensures proper ACID compliance:
     // - ATOMICITY: All operations succeed or all fail (via COMMIT/ROLLBACK)
@@ -287,7 +304,7 @@ try {
         $orderId = $pdo->lastInsertId();
         
         // After order_items are inserted, triggers will update orders.total_amount automatically
-        // We'll fetch the updated total_amount after all items are inserted
+        // We'll fetch the updated total_amount after all items are inserted, then apply discount if needed
         
         // ATOMICITY: Order items creation within same transaction
         // 3. Create order items (connected to cart via cart_id tracking)
@@ -311,6 +328,30 @@ try {
             
             // Log the cart → order connection for traceability
             error_log("Order Item Created: order_id=$orderId, product_id=$productId, quantity=$quantity, cart_id=" . ($cartId ?? 'N/A') . ", user_id=$userId");
+        }
+        
+        // Apply PC Builder discount after all items are inserted (triggers have updated total_amount)
+        if (isset($input['discount']) && is_array($input['discount']) && $input['discount']['type'] === 'pc_builder') {
+            // Fetch current total_amount (updated by triggers from sum of order_items)
+            $stmt = $pdo->prepare("SELECT total_amount FROM orders WHERE order_id = ?");
+            $stmt->execute([$orderId]);
+            $order = $stmt->fetch();
+            $currentTotal = (float)$order['total_amount'];
+            
+            // Recalculate discount based on actual total from order_items
+            $discountPercent = isset($input['discount']['percent']) ? (float)$input['discount']['percent'] : 0;
+            $actualDiscountAmount = ($currentTotal * $discountPercent) / 100;
+            $discountedTotal = $currentTotal - $actualDiscountAmount;
+            
+            // Update order total_amount with discount applied
+            $stmt = $pdo->prepare("UPDATE orders SET total_amount = ? WHERE order_id = ?");
+            $stmt->execute([$discountedTotal, $orderId]);
+            
+            // Update totalAmount variable for payment record
+            $totalAmount = $discountedTotal;
+            $discountAmount = $actualDiscountAmount;
+            
+            error_log("PC Builder Discount Applied: $discountPercent% = $actualDiscountAmount $currency, New Total: $discountedTotal $currency");
         }
         
         // ATOMICITY: Payment record creation within same transaction
@@ -409,7 +450,12 @@ try {
             'items_count' => count($items),
             'cart_items_processed' => count($cartItems),
             'user_id' => $userId,
-            'flow' => 'cart → checkout → order'
+            'flow' => 'cart → checkout → order',
+            'discount_applied' => $discountAmount > 0 ? [
+                'type' => 'pc_builder',
+                'percent' => isset($input['discount']['percent']) ? (float)$input['discount']['percent'] : 0,
+                'amount' => $discountAmount
+            ] : null
         ]);
         
         $stmt = $pdo->prepare("
@@ -426,6 +472,9 @@ try {
         error_log("Order Items Created: " . count($items));
         error_log("Branch ID: $branchId");
         error_log("Total Amount: $totalAmount $currency");
+        if ($discountAmount > 0) {
+            error_log("PC Builder Discount Applied: " . ($input['discount']['percent'] ?? 0) . "% = $discountAmount $currency");
+        }
         
         // ATOMICITY: Cart clearing within same transaction
         // CONSISTENCY: Clears only checked-out items from cart (partial checkout support)

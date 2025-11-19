@@ -53,7 +53,7 @@ try {
         ? "(SELECT COALESCE(pi.stock_qty,0) FROM product_inventory pi WHERE pi.branch_id=? AND pi.product_id=p.product_id)"
         : "(SELECT COALESCE(SUM(pi.stock_qty),0) FROM product_inventory pi WHERE pi.product_id=p.product_id)";
     
-    // Filter cart items by user's branch_id and include all product details
+    // Filter cart items by user's branch_id and include all product details + PC builder build info
     if ($userBranchId) {
         $sql = "
             SELECT
@@ -61,6 +61,7 @@ try {
                 cart.product_id,
                 cart.quantity,
                 cart.added_at,
+                cart.pc_builder_build_id,
                 p.product_name,
                 p.brand,
                 p.model,
@@ -73,12 +74,19 @@ try {
                 (SELECT image_url 
                    FROM product_images 
                   WHERE product_id = p.product_id AND is_primary = TRUE 
-                  ORDER BY sort_order, created_at LIMIT 1) AS primary_image_url
+                  ORDER BY sort_order, created_at LIMIT 1) AS primary_image_url,
+                pb.build_id,
+                pb.build_name,
+                pb.discount_percent,
+                pb.discount_amount,
+                pb.subtotal AS build_subtotal,
+                pb.total_amount AS build_total_amount
             FROM cart
             JOIN products p ON p.product_id = cart.product_id
             LEFT JOIN categories cat ON cat.category_id = p.category_id
+            LEFT JOIN pc_builder_builds pb ON pb.build_id = cart.pc_builder_build_id
             WHERE cart.user_id = ? AND cart.branch_id = ?
-            ORDER BY cart.added_at DESC
+            ORDER BY cart.pc_builder_build_id IS NULL DESC, cart.added_at DESC
         ";
     } else {
         // User has no branch - show items with branch_id = 0 or NULL
@@ -88,6 +96,7 @@ try {
                 cart.product_id,
                 cart.quantity,
                 cart.added_at,
+                cart.pc_builder_build_id,
                 p.product_name,
                 p.brand,
                 p.model,
@@ -100,12 +109,19 @@ try {
                 (SELECT image_url 
                    FROM product_images 
                   WHERE product_id = p.product_id AND is_primary = TRUE 
-                  ORDER BY sort_order, created_at LIMIT 1) AS primary_image_url
+                  ORDER BY sort_order, created_at LIMIT 1) AS primary_image_url,
+                pb.build_id,
+                pb.build_name,
+                pb.discount_percent,
+                pb.discount_amount,
+                pb.subtotal AS build_subtotal,
+                pb.total_amount AS build_total_amount
             FROM cart
             JOIN products p ON p.product_id = cart.product_id
             LEFT JOIN categories cat ON cat.category_id = p.category_id
+            LEFT JOIN pc_builder_builds pb ON pb.build_id = cart.pc_builder_build_id
             WHERE cart.user_id = ? AND (cart.branch_id IS NULL OR cart.branch_id = 0)
-            ORDER BY cart.added_at DESC
+            ORDER BY cart.pc_builder_build_id IS NULL DESC, cart.added_at DESC
         ";
     }
 
@@ -122,16 +138,94 @@ try {
     $stmt->execute($params);
     $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Compute total in selected currency
+    // Group items by PC builder build
+    $standaloneItems = [];
+    $builds = [];
+    $buildMap = [];
+    
+    foreach ($items as $item) {
+        $buildId = $item['build_id'];
+        
+        if ($buildId) {
+            // Item belongs to a PC builder build
+            if (!isset($buildMap[$buildId])) {
+                // Convert build amounts to requested currency if needed
+                // Build amounts are stored in PHP (base currency)
+                $buildSubtotal = (float)$item['build_subtotal'];
+                $buildTotal = (float)$item['build_total_amount'];
+                $buildDiscountAmount = (float)$item['discount_amount'];
+                
+                // Convert from PHP to requested currency
+                if ($currency !== 'PHP') {
+                    $buildSubtotal = $buildSubtotal * $rate;
+                    $buildTotal = $buildTotal * $rate;
+                    $buildDiscountAmount = $buildDiscountAmount * $rate;
+                }
+                
+                $buildMap[$buildId] = [
+                    'build_id' => (int)$buildId,
+                    'build_name' => $item['build_name'],
+                    'discount_percent' => (float)$item['discount_percent'],
+                    'discount_amount' => round($buildDiscountAmount, 2),
+                    'subtotal' => round($buildSubtotal, 2),
+                    'total_amount' => round($buildTotal, 2),
+                    'currency' => $currency,
+                    'items' => []
+                ];
+            }
+            
+            // Add item to build
+            $buildMap[$buildId]['items'][] = [
+                'cart_id' => (int)$item['cart_id'],
+                'product_id' => (int)$item['product_id'],
+                'quantity' => (int)$item['quantity'],
+                'product_name' => $item['product_name'],
+                'brand' => $item['brand'],
+                'model' => $item['model'],
+                'price' => (float)$item['price'],
+                'display_price' => (float)$item['display_price'],
+                'line_total_display' => (float)$item['line_total_display'],
+                'stock_quantity' => $item['stock_quantity'] ? (int)$item['stock_quantity'] : null,
+                'category_name' => $item['category_name'],
+                'primary_image_url' => $item['primary_image_url']
+            ];
+        } else {
+            // Standalone item
+            $standaloneItems[] = [
+                'cart_id' => (int)$item['cart_id'],
+                'product_id' => (int)$item['product_id'],
+                'quantity' => (int)$item['quantity'],
+                'product_name' => $item['product_name'],
+                'brand' => $item['brand'],
+                'model' => $item['model'],
+                'price' => (float)$item['price'],
+                'display_price' => (float)$item['display_price'],
+                'line_total_display' => (float)$item['line_total_display'],
+                'stock_quantity' => $item['stock_quantity'] ? (int)$item['stock_quantity'] : null,
+                'category_name' => $item['category_name'],
+                'primary_image_url' => $item['primary_image_url'],
+                'currency' => $currency
+            ];
+        }
+    }
+    
+    // Convert build map to array
+    $builds = array_values($buildMap);
+    
+    // Compute total: standalone items + build totals
     $total = 0.0;
-    foreach ($items as $it) {
+    foreach ($standaloneItems as $it) {
         $total += (float)$it['line_total_display'];
+    }
+    foreach ($builds as $build) {
+        $total += (float)$build['total_amount'];
     }
 
     sendResponse([
         'currency' => $currency,
-        'items'    => $items,
-        'total'    => round($total, 2)
+        'items' => $standaloneItems,
+        'builds' => $builds,
+        'total' => round($total, 2)
     ], 'Cart retrieved successfully');
 
 } catch (PDOException $e) {

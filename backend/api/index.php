@@ -187,6 +187,14 @@ switch ($path) {
         }
         break;
         
+    case 'cart/pc-builder-build':
+        if ($method === 'POST') {
+            include 'cart/add_pc_builder_build.php';
+        } else {
+            sendError('Method not allowed', 405);
+        }
+        break;
+        
     case 'checkout/lock-currency':
         if ($method === 'POST') {
             include 'checkout/lock-currency.php';

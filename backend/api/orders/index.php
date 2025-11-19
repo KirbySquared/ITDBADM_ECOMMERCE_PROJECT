@@ -14,15 +14,25 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/currency_api.php';
 
 header('Content-Type: application/json');
 
-// Get authorization header
-$headers = getallheaders();
+// Get authorization header (case-insensitive check like other endpoints)
+$headers = function_exists('getallheaders') ? getallheaders() : [];
 $token = null;
 
-if (isset($headers['Authorization'])) {
-    $token = str_replace('Bearer ', '', $headers['Authorization']);
+// Case-insensitive header check
+foreach ($headers as $k => $v) {
+    if (strtolower($k) === 'authorization') {
+        $token = preg_replace('/^Bearer\s+/i', '', $v);
+        break;
+    }
+}
+
+// Fallback: check $_SERVER if getallheaders() didn't work
+if (!$token && isset($_SERVER['HTTP_AUTHORIZATION'])) {
+    $token = preg_replace('/^Bearer\s+/i', '', $_SERVER['HTTP_AUTHORIZATION']);
 }
 
 if (!$token) {
@@ -54,11 +64,26 @@ foreach ($pathParts as $i => $part) {
 
 try {
     if ($orderId) {
+        // Get requested currency (default to PHP)
+        $requestedCurrency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+        
+        // Validate currency code
+        if (!isValidCurrencyCode($requestedCurrency)) {
+            sendError('Invalid currency code', 400);
+        }
+        
+        // Get exchange rate from API
+        $rateToPhp = getExchangeRateFromAPI($requestedCurrency);
+        if ($rateToPhp === null) {
+            sendError('Failed to fetch exchange rate for ' . $requestedCurrency, 500);
+        }
+        
         // Get specific order details - ensure it belongs to the user
         $stmt = $pdo->prepare("
-            SELECT o.*, u.first_name, u.last_name, u.email, u.phone
+            SELECT o.*, u.first_name, u.last_name, u.email, u.phone, ocs.rate_to_php as order_rate_to_php
             FROM orders o 
             LEFT JOIN users u ON o.user_id = u.user_id 
+            LEFT JOIN order_currency_snapshots ocs ON o.order_id = ocs.order_id
             WHERE o.order_id = ? AND o.user_id = ?
         ");
         $stmt->execute([$orderId, $userId]);
@@ -100,7 +125,29 @@ try {
             ORDER BY oi.order_item_id ASC
         ");
         $stmt->execute([$userId, $userId, $userId, $orderId]);
-        $order['items'] = $stmt->fetchAll();
+        $items = $stmt->fetchAll();
+        
+        // Convert order items to requested currency
+        $orderCurrency = $order['currency'] ?? 'PHP';
+        $orderRateToPhp = isset($order['order_rate_to_php']) && $order['order_rate_to_php'] > 0 
+            ? (float)$order['order_rate_to_php'] 
+            : ($orderCurrency === 'PHP' ? 1.0 : getExchangeRateFromAPI($orderCurrency));
+        
+        foreach ($items as &$item) {
+            // Convert unit_price and subtotal from order's original currency to requested currency
+            $unitPriceInPhp = $orderCurrency === 'PHP' ? (float)$item['unit_price'] : ((float)$item['unit_price'] / $orderRateToPhp);
+            $subtotalInPhp = $orderCurrency === 'PHP' ? (float)$item['subtotal'] : ((float)$item['subtotal'] / $orderRateToPhp);
+            
+            $item['unit_price'] = $requestedCurrency === 'PHP' ? $unitPriceInPhp : ($unitPriceInPhp * $rateToPhp);
+            $item['subtotal'] = $requestedCurrency === 'PHP' ? $subtotalInPhp : ($subtotalInPhp * $rateToPhp);
+        }
+        unset($item);
+        $order['items'] = $items;
+        
+        // Convert order total_amount
+        $totalInPhp = $orderCurrency === 'PHP' ? (float)$order['total_amount'] : ((float)$order['total_amount'] / $orderRateToPhp);
+        $order['total_amount'] = $requestedCurrency === 'PHP' ? $totalInPhp : ($totalInPhp * $rateToPhp);
+        $order['currency'] = $requestedCurrency;
         
         // Get payment details if exists
         $stmt = $pdo->prepare("
@@ -110,6 +157,15 @@ try {
         ");
         $stmt->execute([$orderId]);
         $payment = $stmt->fetch();
+        
+        // Convert payment amount
+        if ($payment) {
+            $paymentCurrency = $payment['currency'] ?? $orderCurrency;
+            $paymentRateToPhp = $paymentCurrency === 'PHP' ? 1.0 : getExchangeRateFromAPI($paymentCurrency);
+            $paymentInPhp = $paymentCurrency === 'PHP' ? (float)$payment['amount'] : ((float)$payment['amount'] / $paymentRateToPhp);
+            $payment['amount'] = $requestedCurrency === 'PHP' ? $paymentInPhp : ($paymentInPhp * $rateToPhp);
+            $payment['currency'] = $requestedCurrency;
+        }
         $order['payment'] = $payment;
         
         sendResponse($order, 'Order retrieved successfully');
@@ -119,14 +175,30 @@ try {
         $limit = min(50, max(1, intval($_GET['limit'] ?? 20)));
         $offset = ($page - 1) * $limit;
         
-        // Get orders with payment status
+        // Get requested currency (default to PHP)
+        $requestedCurrency = isset($_GET['currency']) ? strtoupper(trim($_GET['currency'])) : 'PHP';
+        
+        // Validate currency code
+        if (!isValidCurrencyCode($requestedCurrency)) {
+            sendError('Invalid currency code', 400);
+        }
+        
+        // Get exchange rate from API
+        $rateToPhp = getExchangeRateFromAPI($requestedCurrency);
+        if ($rateToPhp === null) {
+            sendError('Failed to fetch exchange rate for ' . $requestedCurrency, 500);
+        }
+        
+        // Get orders with payment status and currency snapshot
         $stmt = $pdo->prepare("
             SELECT o.*, 
-                   p.payment_method, p.payment_status, p.amount as payment_amount,
+                   p.payment_method, p.payment_status, p.amount as payment_amount, p.currency as payment_currency,
+                   ocs.rate_to_php as order_rate_to_php,
                    COUNT(oi.order_item_id) as items_count
             FROM orders o
             LEFT JOIN payments p ON o.order_id = p.order_id
             LEFT JOIN order_items oi ON o.order_id = oi.order_id
+            LEFT JOIN order_currency_snapshots ocs ON o.order_id = ocs.order_id
             WHERE o.user_id = ?
             GROUP BY o.order_id
             ORDER BY o.order_date DESC
@@ -134,6 +206,37 @@ try {
         ");
         $stmt->execute([$userId, $limit, $offset]);
         $orders = $stmt->fetchAll();
+        
+        // Convert order amounts to requested currency
+        foreach ($orders as &$order) {
+            $orderCurrency = $order['currency'] ?? 'PHP';
+            $orderTotalAmount = (float)$order['total_amount'];
+            $orderPaymentAmount = isset($order['payment_amount']) ? (float)$order['payment_amount'] : null;
+            
+            // Convert from order's original currency to PHP first
+            // If order has a currency snapshot, use that rate; otherwise assume it's PHP
+            $orderRateToPhp = isset($order['order_rate_to_php']) && $order['order_rate_to_php'] > 0 
+                ? (float)$order['order_rate_to_php'] 
+                : ($orderCurrency === 'PHP' ? 1.0 : getExchangeRateFromAPI($orderCurrency));
+            
+            // Convert order total from original currency to PHP
+            $totalInPhp = $orderCurrency === 'PHP' ? $orderTotalAmount : ($orderTotalAmount / $orderRateToPhp);
+            
+            // Convert from PHP to requested currency
+            $convertedTotal = $requestedCurrency === 'PHP' ? $totalInPhp : ($totalInPhp * $rateToPhp);
+            $order['total_amount'] = round($convertedTotal, 2);
+            $order['currency'] = $requestedCurrency;
+            
+            // Convert payment amount if exists
+            if ($orderPaymentAmount !== null) {
+                $paymentCurrency = $order['payment_currency'] ?? $orderCurrency;
+                $paymentRateToPhp = $paymentCurrency === 'PHP' ? 1.0 : getExchangeRateFromAPI($paymentCurrency);
+                $paymentInPhp = $paymentCurrency === 'PHP' ? $orderPaymentAmount : ($orderPaymentAmount / $paymentRateToPhp);
+                $convertedPayment = $requestedCurrency === 'PHP' ? $paymentInPhp : ($paymentInPhp * $rateToPhp);
+                $order['payment_amount'] = round($convertedPayment, 2);
+            }
+        }
+        unset($order); // Break reference
         
         // Get total count
         $countStmt = $pdo->prepare("

@@ -20,6 +20,22 @@ interface CartItem {
   line_total_display?: number
 }
 
+interface PcBuilderBuild {
+  build_id: number
+  build_name: string
+  discount_percent: number
+  discount_amount: number
+  subtotal: number
+  total_amount: number
+  currency: string
+  items: Array<{
+    cart_id: number
+    product_id: number
+    product_name: string
+    quantity: number
+  }>
+}
+
 interface MiniCartProps {
   show: boolean
   onHide: () => void
@@ -32,6 +48,7 @@ interface MiniCartProps {
 function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, triggerElement }: MiniCartProps) {
   const { currency } = useCurrency()
   const [cartItems, setCartItems] = useState<CartItem[]>([])
+  const [builds, setBuilds] = useState<PcBuilderBuild[]>([])
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
   const [modalPosition, setModalPosition] = useState({ top: '0px', right: '0px', arrowRight: '50px' })
@@ -45,6 +62,17 @@ function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, trig
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [show, triggerElement, currency])
+
+  // Listen for cart updates
+  useEffect(() => {
+    const handleCartUpdate = () => {
+      if (show) {
+        fetchCart()
+      }
+    }
+    window.addEventListener('cartUpdated', handleCartUpdate)
+    return () => window.removeEventListener('cartUpdated', handleCartUpdate)
+  }, [show])
 
   const fetchCart = async () => {
     setLoading(true)
@@ -68,6 +96,7 @@ function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, trig
         const data = await response.json()
         if (data.success) {
           setCartItems(data.data.items || [])
+          setBuilds(data.data.builds || [])
           setTotal(data.data.total || 0)
         }
       }
@@ -155,7 +184,7 @@ function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, trig
               <span className="visually-hidden">Loading...</span>
             </div>
           </div>
-        ) : cartItems.length === 0 ? (
+        ) : cartItems.length === 0 && builds.length === 0 ? (
           <div className="minicart-empty text-center py-5">
             <i className="bi bi-cart-x text-muted" style={{fontSize: '3rem'}}></i>
             <p className="mt-3 mb-1 fw-semibold">Your shop cart is empty</p>
@@ -167,6 +196,48 @@ function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, trig
         ) : (
           <>
             <div className="minicart-items">
+              {/* PC Builder Builds */}
+              {builds.map(build => (
+                <div key={build.build_id} className="minicart-item" style={{ borderLeft: '3px solid #0d6efd', paddingLeft: '8px' }}>
+                  <div className="minicart-item-image">
+                    <i className="bi bi-pc-display text-primary" style={{ fontSize: '2rem' }}></i>
+                  </div>
+                  <div className="minicart-item-info">
+                    <h6 className="mb-1">
+                      <span className="text-dark fw-bold">
+                        {build.build_name}
+                      </span>
+                    </h6>
+                    <small className="text-muted d-block">
+                      {build.items.length} component{build.items.length !== 1 ? 's' : ''}
+                      {build.discount_percent > 0 && (
+                        <span className="badge bg-success ms-2">{build.discount_percent}% Off</span>
+                      )}
+                    </small>
+                    {build.discount_percent > 0 && (
+                      <small className="text-muted d-block">
+                        <span className="text-decoration-line-through">{formatPrice(build.subtotal, build.currency)}</span>
+                        {' '}
+                        <span className="text-success">-{formatPrice(build.discount_amount, build.currency)}</span>
+                      </small>
+                    )}
+                    <p className="text-primary fw-bold mb-2">{formatPrice(build.total_amount, build.currency)}</p>
+                    <a
+                      href="#"
+                      className="text-danger small text-decoration-none"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        // Remove all items in the build
+                        build.items.forEach(item => removeItem(item.cart_id))
+                      }}
+                    >
+                      Remove Build
+                    </a>
+                  </div>
+                </div>
+              ))}
+              
+              {/* Standalone Items */}
               {cartItems.map(item => (
                 <div key={item.cart_id} className="minicart-item">
                   <div className="minicart-item-image">
@@ -228,7 +299,7 @@ function MiniCart({ show, onHide, onCartUpdate, onMouseEnter, onMouseLeave, trig
             <div className="minicart-total">
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <span className="fw-bold">Total</span>
-                <span className="fw-bold text-primary">{formatPrice(total, cartItems[0]?.currency || currency)}</span>
+                <span className="fw-bold text-primary">{formatPrice(total, cartItems[0]?.currency || builds[0]?.currency || currency)}</span>
               </div>
               <div className="d-grid gap-2">
                 <Link to="/cart" className="btn btn-primary" onClick={onHide}>

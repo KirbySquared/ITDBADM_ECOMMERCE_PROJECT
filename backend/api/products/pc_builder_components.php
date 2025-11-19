@@ -92,6 +92,7 @@ try {
             'brand'            => $row['brand'],
             'model'            => $row['model'],
             'price'            => (float)$row['price'],
+            'price_php'        => (float)$row['price_php'], // Base price in PHP
             'currency'         => $row['currency'],
             'primary_image_url'=> $row['primary_image_url']
         ];

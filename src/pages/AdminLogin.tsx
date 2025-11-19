@@ -144,11 +144,6 @@ function AdminLogin() {
               </div>
               
               <div className="text-center mt-3">
-                <small className="text-muted">
-                  Default Admin Credentials (THIS IS FOR DEV PURPOSES ONLY, AALISIN TO SA ACTUAL DEMO):<br />
-                  Email: admin@electronicsstore.com<br />
-                  Password: Dlsu1234!
-                </small>
               </div>
             </div>
           </div>

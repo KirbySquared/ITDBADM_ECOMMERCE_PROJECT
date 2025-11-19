@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useCurrency } from '../context/CurrencyContext'
 import { api } from '../api/config'
 import { formatPrice } from '../utils/currency'
 import './Checkout.css'
@@ -62,6 +63,7 @@ const paymentMethods = [
 function Checkout() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { currency } = useCurrency()
 
   const [lock, setLock] = useState<null | {
     lock_id: string
@@ -72,7 +74,12 @@ function Checkout() {
   }>(null)
 
   const [branches, setBranches] = useState<Branch[]>([])
-  const [cart, setCart] = useState<{ items: CartItem[]; subtotal: number; currency: string } | null>(null)
+  const [cart, setCart] = useState<{ 
+    items: CartItem[]
+    subtotal: number
+    currency: string
+    discount?: { discountPercent: number; discountAmount: number; productIds: number[] } | null
+  } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -128,7 +135,7 @@ function Checkout() {
         }
 
         const [cartRes, branchRes] = await Promise.all([
-          fetch(api('/cart'), {
+          fetch(api(`/cart?currency=${encodeURIComponent(currency)}`), {
             headers: { 'Authorization': `Bearer ${token}` }
           }),
           fetch(api('/branches'), {
@@ -146,29 +153,122 @@ function Checkout() {
 
         if (cartJson?.success) {
           let allItems = cartJson.data.items || []
+          const allBuilds = cartJson.data.builds || []
           
           // Filter items based on selected items from cart page
           const selectedItemsJson = sessionStorage.getItem('checkout_selected_items')
+          const selectedBuildsJson = sessionStorage.getItem('checkout_selected_builds')
+          
+          let selectedCartIds = new Set<number>()
+          let selectedBuildIds = new Set<number>()
+          
           if (selectedItemsJson) {
             try {
-              const selectedCartIds = new Set(JSON.parse(selectedItemsJson).map((id: any) => Number(id)))
-              allItems = allItems.filter((item: any) => selectedCartIds.has(Number(item.cart_id)))
+              selectedCartIds = new Set(JSON.parse(selectedItemsJson).map((id: any) => Number(id)))
             } catch (e) {
               console.error('Failed to parse selected items:', e)
-              // If parsing fails, use all items
             }
           }
           
-          // Recalculate subtotal for filtered items
-          const filteredSubtotal = allItems.reduce((sum: number, item: any) => {
+          if (selectedBuildsJson) {
+            try {
+              selectedBuildIds = new Set(JSON.parse(selectedBuildsJson).map((id: any) => Number(id)))
+            } catch (e) {
+              console.error('Failed to parse selected builds:', e)
+            }
+          }
+          
+          // Filter standalone items
+          const filteredStandaloneItems = allItems.filter((item: any) => selectedCartIds.has(Number(item.cart_id)))
+          
+          // Calculate subtotal for standalone items
+          const standaloneSubtotal = filteredStandaloneItems.reduce((sum: number, item: any) => {
             const price = item.display_price ?? item.price ?? 0
             return sum + (Number(price) * Number(item.quantity))
           }, 0)
           
+          // Get selected builds
+          const selectedBuilds = allBuilds.filter((build: any) => selectedBuildIds.has(Number(build.build_id)))
+          
+          // Calculate subtotal and discount for builds
+          let buildsSubtotal = 0
+          let totalDiscountAmount = 0
+          let discountPercent = 0
+          const allBuildProductIds: number[] = []
+          
+          selectedBuilds.forEach((build: any) => {
+            // Build subtotal is the total before discount
+            buildsSubtotal += Number(build.subtotal || 0)
+            // Sum up all discount amounts
+            totalDiscountAmount += Number(build.discount_amount || 0)
+            // Use the discount percent (should be same for all builds)
+            if (build.discount_percent > 0) {
+              discountPercent = build.discount_percent
+            }
+            // Collect all product IDs from builds
+            build.items.forEach((item: any) => {
+              allBuildProductIds.push(Number(item.product_id))
+            })
+            // Add all items from the build to allItems for display
+            build.items.forEach((buildItem: any) => {
+              filteredStandaloneItems.push({
+                cart_id: buildItem.cart_id,
+                product_id: buildItem.product_id,
+                quantity: buildItem.quantity,
+                product_name: buildItem.product_name,
+                price: buildItem.price || buildItem.display_price || 0,
+                display_price: buildItem.display_price || buildItem.price || 0,
+                currency: build.currency,
+                primary_image_url: buildItem.primary_image_url,
+                brand: buildItem.brand,
+                model: buildItem.model
+              })
+            })
+          })
+          
+          // Total subtotal = standalone items + build subtotals (before discount)
+          const totalSubtotal = standaloneSubtotal + buildsSubtotal
+          
+          // Discount info
+          let discountInfo = null
+          if (totalDiscountAmount > 0 && discountPercent > 0) {
+            discountInfo = {
+              discountPercent: discountPercent,
+              discountAmount: totalDiscountAmount,
+              productIds: allBuildProductIds
+            }
+          }
+          
+          // Legacy: Check for old PC builder discount format (for backward compatibility)
+          const pcBuilderDiscountJson = sessionStorage.getItem('pc_builder_discount')
+          if (pcBuilderDiscountJson && !discountInfo) {
+            try {
+              const pcBuilderDiscount = JSON.parse(pcBuilderDiscountJson)
+              const cartProductIds = new Set(allItems.map((item: any) => Number(item.product_id)))
+              const discountProductIds = new Set(pcBuilderDiscount.productIds || [])
+              const matchingProducts = Array.from(discountProductIds).filter(id => cartProductIds.has(id))
+              
+              if (matchingProducts.length >= 5) {
+                const totalPcBuilderCategories = pcBuilderDiscount.productIds?.length || 0
+                const discountPercent = (matchingProducts.length === 9 && totalPcBuilderCategories === 9) ? 20 : 10
+                const discountAmount = (filteredSubtotal * discountPercent) / 100
+                
+                discountInfo = {
+                  discountPercent,
+                  discountAmount,
+                  productIds: matchingProducts
+                }
+              }
+            } catch (e) {
+              console.error('Failed to parse PC builder discount:', e)
+            }
+          }
+          
           setCart({
-            items: allItems,
-            subtotal: filteredSubtotal,
-            currency: allItems[0]?.currency || cartJson.data.items?.[0]?.currency || 'PHP'
+            items: filteredStandaloneItems,
+            subtotal: totalSubtotal,
+            currency: filteredStandaloneItems[0]?.currency || cartJson.data.items?.[0]?.currency || cartJson.data.builds?.[0]?.currency || 'PHP',
+            discount: discountInfo
           })
         } else {
           setError('Failed to load cart.')
@@ -184,7 +284,7 @@ function Checkout() {
         setError('Failed to load checkout data.')
       }
     })()
-  }, [navigate])
+  }, [navigate, currency])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -292,7 +392,12 @@ function Checkout() {
           quantity: i.quantity,
           unit_price: i.display_price ?? i.price,  // Use display_price if available (converted currency)
           currency: i.currency
-        }))
+        })),
+        discount: cart.discount ? {
+          type: 'pc_builder',
+          percent: cart.discount.discountPercent,
+          amount: cart.discount.discountAmount
+        } : null
       }
 
       const res = await fetch(api('/checkout/create-order'), {
@@ -318,7 +423,11 @@ function Checkout() {
       
       // Clear the lock and cart
       sessionStorage.removeItem('checkout_lock')
+      sessionStorage.removeItem('checkout_selected_items')
+      sessionStorage.removeItem('checkout_selected_builds')
       window.dispatchEvent(new Event('cartUpdated'))
+      // Dispatch event to refresh orders list in Profile page
+      window.dispatchEvent(new Event('orderCreated'))
 
       // Navigate to an order confirmation screen
       navigate(`/orders/${data.data?.order_id ?? 'success'}`, {
@@ -684,6 +793,17 @@ function Checkout() {
                         <span className="text-muted">Subtotal:</span>
                         <span className="fw-semibold">{formatPrice(cart.subtotal, cart.currency)}</span>
                       </div>
+                      {cart.discount && cart.discount.discountPercent > 0 && (
+                        <div className="d-flex justify-content-between mb-2">
+                          <span className="text-success">
+                            <i className="bi bi-tag-fill me-1"></i>
+                            PC Builder Discount ({cart.discount.discountPercent}%):
+                          </span>
+                          <span className="fw-semibold text-success">
+                            -{formatPrice(cart.discount.discountAmount, cart.currency)}
+                          </span>
+                        </div>
+                      )}
                       <div className="d-flex justify-content-between mb-2">
                         <span className="text-muted">Shipping:</span>
                         <span className="fw-semibold">
@@ -694,20 +814,14 @@ function Checkout() {
                       <div className="d-flex justify-content-between mb-3">
                         <span className="fw-bold fs-5">Total:</span>
                         <span className="fw-bold fs-5 text-primary">
-                          {formatPrice(cart.subtotal, cart.currency)}
+                          {formatPrice(
+                            cart.discount 
+                              ? cart.subtotal - cart.discount.discountAmount 
+                              : cart.subtotal, 
+                            cart.currency
+                          )}
                         </span>
                       </div>
-                      {lock && (
-                        <div className="alert alert-info small mb-3">
-                          <div className="d-flex align-items-center">
-                            <i className="bi bi-info-circle me-2"></i>
-                            <div>
-                              <div><strong>Currency:</strong> {lock.currency}</div>
-                              <div className="small">Rate: {lock.rate_to_php}</div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </>
                 ) : (

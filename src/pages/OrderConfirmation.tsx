@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useCurrency } from '../context/CurrencyContext'
 import { api } from '../api/config'
 import { formatPrice } from '../utils/currency'
 import './OrderConfirmation.css'
@@ -48,6 +49,7 @@ function OrderConfirmation() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
   const { user } = useAuth()
+  const { currency } = useCurrency()
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -74,7 +76,7 @@ function OrderConfirmation() {
       setError('Order ID not found')
       setLoading(false)
     }
-  }, [id, location.state])
+  }, [id, location.state, currency])
 
   const fetchOrder = async (orderId: number) => {
     try {
@@ -86,7 +88,7 @@ function OrderConfirmation() {
       }
 
       // Use user-facing orders endpoint instead of admin endpoint
-      const response = await fetch(api(`/orders/${orderId}`), {
+      const response = await fetch(api(`/orders/${orderId}?currency=${encodeURIComponent(currency)}`), {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -324,10 +326,10 @@ function OrderConfirmation() {
                               <span className="badge bg-secondary">{item.quantity}</span>
                             </td>
                             <td className="text-end">
-                              {formatPrice(item.unit_price, order.currency)}
+                              {formatPrice(item.unit_price, currency)}
                             </td>
                             <td className="text-end fw-bold">
-                              {formatPrice(item.subtotal, order.currency)}
+                              {formatPrice(item.subtotal, currency)}
                             </td>
                           </tr>
                         ))}
@@ -338,7 +340,7 @@ function OrderConfirmation() {
                             Total Amount:
                           </td>
                           <td className="text-end fw-bold fs-5 text-primary">
-                            {formatPrice(order.total_amount, order.currency)}
+                            {formatPrice(order.total_amount, currency)}
                           </td>
                         </tr>
                       </tfoot>
@@ -395,7 +397,7 @@ function OrderConfirmation() {
                     <div className="col-12">
                       <h6 className="text-muted mb-1">Amount Paid</h6>
                       <p className="fs-4 fw-bold text-success mb-0">
-                        {formatPrice(order.payment.amount, order.payment.currency)}
+                        {formatPrice(order.payment.amount, currency)}
                       </p>
                     </div>
                   </div>
