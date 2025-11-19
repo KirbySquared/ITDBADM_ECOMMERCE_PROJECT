@@ -35,12 +35,12 @@ try {
                 error_log("Products/Search: User logged in but no branch_id found (user_id: " . $userId . ")");
             }
         } else {
-            // Token is expired or invalid - return 401
-            error_log("Products/Search: Token validation failed - returning 401");
-            sendError('Token expired. Please login again', 401);
+            // Token is expired or invalid - treat as non-logged-in user (allow browsing)
+            error_log("Products/Search: Token validation failed - treating as non-logged-in user");
+            $userBranchId = null;
         }
     } else {
-        error_log("Products/Search: No Authorization header found - showing all products");
+        error_log("Products/Search: No Authorization header found - showing products without branch assignment");
     }
     
     // Currency
@@ -83,6 +83,32 @@ try {
     $limit = isset($_GET['limit']) && (int)$_GET['limit'] > 0 ? (int)$_GET['limit'] : 12;
     $offset = ($page - 1) * $limit;
 
+    // DEBUG: Log all parameters before calling stored procedure
+    error_log("Products/Search: ========== SEARCH REQUEST ==========");
+    error_log("Products/Search: userBranchId = " . ($userBranchId !== null ? $userBranchId : 'NULL'));
+    error_log("Products/Search: branchId (final) = " . ($branchId !== null ? $branchId : 'NULL'));
+    error_log("Products/Search: currency = " . $currency);
+    error_log("Products/Search: q = " . ($q ?: 'NULL'));
+    error_log("Products/Search: categoryId = " . ($categoryId !== null ? $categoryId : 'NULL'));
+    error_log("Products/Search: genreId = " . ($genreId !== null ? $genreId : 'NULL'));
+    error_log("Products/Search: spCategoryFilter = " . ($spCategoryFilter !== null ? $spCategoryFilter : 'NULL'));
+    error_log("Products/Search: year = " . ($year !== null ? $year : 'NULL'));
+    error_log("Products/Search: month = " . ($month !== null ? $month : 'NULL'));
+    error_log("Products/Search: priceMin = " . ($priceMin !== null ? $priceMin : 'NULL'));
+    error_log("Products/Search: priceMax = " . ($priceMax !== null ? $priceMax : 'NULL'));
+    error_log("Products/Search: inStock = " . $inStock);
+    error_log("Products/Search: sort = " . $sort);
+    error_log("Products/Search: page = " . $page);
+    error_log("Products/Search: limit = " . $limit);
+    error_log("Products/Search: offset = " . $offset);
+    
+    // Check if there are any products without branch assignment (for non-logged-in users)
+    if ($branchId === null) {
+        $checkStmt = $pdo->query("SELECT COUNT(*) as count FROM products p WHERE NOT EXISTS (SELECT 1 FROM product_inventory pi WHERE pi.product_id = p.product_id)");
+        $checkResult = $checkStmt->fetch(PDO::FETCH_ASSOC);
+        error_log("Products/Search: [DEBUG] Total products without branch assignment = " . ($checkResult['count'] ?? 0));
+    }
+
     // Prepare call to stored procedure (now updated to handle branch filtering correctly)
     // Note: stored procedure uses p_genre_id parameter to filter by category_id
     $stmt = $pdo->prepare("CALL sp_search_products_advanced(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
@@ -108,17 +134,23 @@ try {
     // 1) total
     $totalRow = $stmt->fetch(PDO::FETCH_ASSOC);
     $total = (int)($totalRow['total'] ?? 0);
+    error_log("Products/Search: [DEBUG] Stored procedure returned total = " . $total);
 
     // Move to next result set (products)
     $stmt->nextRowset();
     $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    error_log("Products/Search: [DEBUG] Stored procedure returned " . count($products) . " products");
 
     // Defensive fallback
     if ($total === 0) {
         $total = count($products);
+        error_log("Products/Search: [DEBUG] Total was 0, using count of products array = " . $total);
     }
 
     $pages = $limit > 0 ? (int)ceil($total / $limit) : 1;
+    
+    error_log("Products/Search: [DEBUG] Final response: total = " . $total . ", products count = " . count($products) . ", pages = " . $pages);
+    error_log("Products/Search: ========== END SEARCH REQUEST ==========");
 
     sendResponse([
         'products' => $products,

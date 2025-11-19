@@ -23,6 +23,34 @@
  *   "items": [{ "product_id": 1, "quantity": 2, "unit_price": 100.00, "currency": "USD" }],
  *   "notes": "optional notes"
  * }
+ * 
+ * ACID COMPLIANCE ANALYSIS:
+ * 
+ * ATOMICITY: GOOD - Uses transaction wrapper
+ *   - All operations (stock validation, order creation, order items, payment) are atomic
+ *   - If any operation fails, entire transaction is rolled back
+ *   - No partial orders created
+ *   - Stock validation and order creation happen in same transaction
+ * 
+ * CONSISTENCY: GOOD
+ *   - Validates all items exist and have sufficient stock
+ *   - Validates currency exists and is active
+ *   - Validates branch exists
+ *   - Enforces business rules (stock limits, currency conversion)
+ *   - Database constraints maintain referential integrity
+ *   - Stock deduction via trigger ensures consistency
+ * 
+ * ISOLATION: GOOD - Uses row-level locking
+ *   - FOR UPDATE on stock checks prevents concurrent stock modifications
+ *   - Prevents race conditions where multiple orders process same low-stock item
+ *   - Transaction isolation level: READ COMMITTED (set in database.php)
+ *   - Stock locks held until transaction commits
+ * 
+ * DURABILITY: GOOD
+ *   - COMMIT ensures all changes are permanently saved
+ *   - ROLLBACK on error ensures no partial state
+ *   - Database ensures durability after successful COMMIT
+ *   - Transaction log ensures audit trail
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
@@ -124,15 +152,17 @@ try {
         $totalAmount += (float)$item['unit_price'] * (int)$item['quantity'];
     }
     
-    // Start ACID transaction with explicit MySQL statements
+    // ATOMICITY: Start transaction - all operations succeed or all fail
     // This ensures proper ACID compliance:
     // - ATOMICITY: All operations succeed or all fail (via COMMIT/ROLLBACK)
     // - CONSISTENCY: Database constraints and business rules are maintained
-    // - ISOLATION: Changes are isolated until COMMIT (default: REPEATABLE READ)
+    // - ISOLATION: Changes are isolated until COMMIT (READ COMMITTED level set in database.php)
     // - DURABILITY: Once COMMIT, changes are permanent even if system crashes
     $pdo->exec("START TRANSACTION");
     
     try {
+        // ISOLATION: Row-level locking prevents concurrent stock modifications
+        // CONSISTENCY: Validate stock availability BEFORE creating order
         // 0. Validate that items in request match items in user's cart (same user_id, branch_id, products)
         // This ensures cart → checkout → order flow is connected
         $cartValidationErrors = [];
@@ -204,12 +234,15 @@ try {
             $productId = (int)$item['product_id'];
             $quantity = (int)$item['quantity'];
             
-            // Check stock in the selected branch
+            // ISOLATION: FOR UPDATE locks the rows until transaction commits, preventing race conditions
+            // Check stock in the selected branch WITH ROW-LEVEL LOCKING
+            // FOR UPDATE locks the rows until transaction commits, preventing race conditions
             $stmt = $pdo->prepare("
                 SELECT COALESCE(pi.stock_qty, 0) as stock_qty, p.product_name
                 FROM products p
                 LEFT JOIN product_inventory pi ON p.product_id = pi.product_id AND pi.branch_id = ?
                 WHERE p.product_id = ?
+                FOR UPDATE
             ");
             $stmt->execute([$branchId, $productId]);
             $product = $stmt->fetch();
@@ -219,6 +252,7 @@ try {
                 continue;
             }
             
+            // CONSISTENCY: Enforce stock limits
             $availableStock = (int)$product['stock_qty'];
             if ($availableStock < $quantity) {
                 $stockErrors[] = "Insufficient stock for {$product['product_name']}. Available: $availableStock, Requested: $quantity";
@@ -230,6 +264,8 @@ try {
             sendError('Stock validation failed: ' . implode('; ', $stockErrors), 400);
         }
         
+        // ATOMICITY: Order creation within transaction
+        // CONSISTENCY: Validates user, currency, branch before creating order
         // 2. Create order (include branch_id)
         $stmt = $pdo->prepare("
             INSERT INTO orders (user_id, total_amount, currency, status, shipping_address, branch_id)
@@ -238,6 +274,7 @@ try {
         $stmt->execute([$userId, $totalAmount, $currency, $shippingAddress, $branchId]);
         $orderId = $pdo->lastInsertId();
         
+        // ATOMICITY: Order items creation within same transaction
         // 3. Create order items (connected to cart via cart_id tracking)
         // Each order_item corresponds to a cart item, maintaining the cart → order connection
         foreach ($items as $item) {
@@ -257,6 +294,8 @@ try {
             error_log("Order Item Created: order_id=$orderId, product_id=$productId, quantity=$quantity, cart_id=" . ($cartId ?? 'N/A') . ", user_id=$userId");
         }
         
+        // ATOMICITY: Payment record creation within same transaction
+        // CONSISTENCY: Payment status matches payment method
         // 4. Create payment record (status: pending initially, will be completed after payment simulation)
         $paymentStatus = ($paymentMethod === 'cod') ? 'pending' : 'pending'; // All start as pending
         $stmt = $pdo->prepare("
@@ -266,6 +305,8 @@ try {
         $transactionId = 'TXN-' . strtoupper(bin2hex(random_bytes(8)));
         $stmt->execute([$orderId, $paymentMethod, $paymentStatus, $totalAmount, $currency, $transactionId]);
         
+        // ATOMICITY: Currency snapshot creation within same transaction
+        // CONSISTENCY: Preserves currency rate at time of order
         // 5. Create order currency snapshot (snapshot the rate at time of order)
         // This preserves the rate used for the order even if rates change later
         $stmt = $pdo->prepare("
@@ -284,6 +325,8 @@ try {
             $stmt->execute([$currency, $rateToPhp, $orderId]);
         }
         
+        // CONSISTENCY: Update payment status based on payment method
+        // ATOMICITY: Payment status update within same transaction
         // 6. Simulate payment (for now, auto-complete non-COD payments)
         // In production, this would integrate with payment gateway
         if ($paymentMethod !== 'cod') {
@@ -303,6 +346,9 @@ try {
             ");
             $stmt->execute([$orderId]);
             
+            // ATOMICITY: Stock deduction within same transaction
+            // CONSISTENCY: Prevents negative stock via GREATEST(0, ...) and stock_qty >= ? condition
+            // ISOLATION: Stock rows are already locked from FOR UPDATE above
             // 7. Deduct stock (this will be handled by trigger, but we validate first)
             // The trigger will automatically deduct stock when payment_status = 'completed'
             // We've already validated stock availability above
@@ -310,6 +356,7 @@ try {
                 $productId = (int)$item['product_id'];
                 $quantity = (int)$item['quantity'];
                 
+                // CONSISTENCY: Safe update that prevents negative stock
                 // Update stock in product_inventory
                 // Use a safe update that prevents negative stock
                 $stmt = $pdo->prepare("
@@ -319,6 +366,7 @@ try {
                 ");
                 $stmt->execute([$quantity, $productId, $branchId, $quantity]);
                 
+                // CONSISTENCY: Verify stock deduction succeeded
                 // Verify the update actually happened (if affected_rows = 0, stock was insufficient)
                 if ($stmt->rowCount() === 0) {
                     throw new Exception("Stock deduction failed for product ID $productId - insufficient stock");
@@ -326,6 +374,8 @@ try {
             }
         }
         
+        // ATOMICITY: Transaction log creation within same transaction
+        // DURABILITY: Audit trail ensures order creation is logged
         // 8. Log transaction (includes cart connection info)
         $logMeta = json_encode([
             'order_id' => $orderId,
@@ -355,10 +405,23 @@ try {
         error_log("Branch ID: $branchId");
         error_log("Total Amount: $totalAmount $currency");
         
+        // Log the complete flow: Cart → Order → (Future: Review)
+        error_log("=== COMPLETE FLOW: Cart → Order ===");
+        error_log("User ID: $userId");
+        error_log("Order ID: $orderId");
+        error_log("Cart Items Processed: " . count($cartItems));
+        error_log("Order Items Created: " . count($items));
+        error_log("Branch ID: $branchId");
+        error_log("Total Amount: $totalAmount $currency");
+        
+        // ATOMICITY: Cart clearing within same transaction
+        // CONSISTENCY: Clears cart after successful order creation
         // 9. Clear user's cart after successful order
         $stmt = $pdo->prepare("DELETE FROM cart WHERE user_id = ? AND branch_id = ?");
         $stmt->execute([$userId, $branchId]);
         
+        // DURABILITY: COMMIT ensures all changes are permanently saved
+        // ATOMICITY: All operations (order, items, payment, stock, log, cart) succeed together
         // Commit transaction - all changes are now permanent
         $pdo->exec("COMMIT");
         

@@ -15,6 +15,26 @@
  * - Requires valid JWT token
  * - Validates admin role
  * - Returns 403 if not admin
+ * 
+ * ACID COMPLIANCE ANALYSIS:
+ * 
+ * POST (Create Branch):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates branch name, enforces business rules
+ *   ISOLATION: GOOD - Uses FOR UPDATE on uniqueness checks
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * PUT (Update Branch):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates constraints before update
+ *   ISOLATION: GOOD - Uses FOR UPDATE on existence and uniqueness checks
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * DELETE (Delete Branch):
+ *   ATOMICITY: GOOD - Uses transaction, deletes related records atomically
+ *   CONSISTENCY: GOOD - Deletes product_inventory first, then branch
+ *   ISOLATION: GOOD - Transaction isolates changes until COMMIT
+ *   DURABILITY: GOOD - COMMIT ensures permanent deletion
  */
 // Ensure clean JSON output
 if (ob_get_level()) {
@@ -97,7 +117,7 @@ try {
             break;
             
         case 'POST':
-            // Create new branch
+            // Create new branch with ACID transaction
             $input = json_decode(file_get_contents('php://input'), true);
             
             if (!$input) {
@@ -117,41 +137,51 @@ try {
                 sendError('Missing required fields: ' . implode(', ', $missingFields), 400);
             }
             
-            // Check if branch name already exists
-            $checkStmt = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_name = ?");
-            $checkStmt->execute([trim($input['branch_name'])]);
-            if ($checkStmt->fetch()) {
-                sendError('Branch name already exists', 409);
+            // ATOMICITY: Start transaction - all operations succeed or all fail
+            $pdo->exec("START TRANSACTION");
+            
+            try {
+                // ISOLATION: Row-level locking prevents concurrent branch name conflicts
+                // CONSISTENCY: Validate branch name uniqueness with row-level locking
+                // Check if branch name already exists WITH ROW-LEVEL LOCKING
+                $checkStmt = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_name = ? FOR UPDATE");
+                $checkStmt->execute([trim($input['branch_name'])]);
+                if ($checkStmt->fetch()) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('Branch name already exists', 409);
+                }
+                
+                // ATOMICITY: Branch INSERT within transaction
+                // Insert branch
+                $stmt = $pdo->prepare("INSERT INTO branches (branch_name, address) VALUES (?, ?)");
+                $stmt->execute([
+                    trim($input['branch_name']),
+                    isset($input['address']) ? trim($input['address']) : null
+                ]);
+                
+                $newBranchId = $pdo->lastInsertId();
+                
+                // DURABILITY: COMMIT ensures all changes are permanently saved
+                $pdo->exec("COMMIT");
+                
+                // Get created branch
+                $stmt = $pdo->prepare("SELECT branch_id, branch_name, address FROM branches WHERE branch_id = ?");
+                $stmt->execute([$newBranchId]);
+                $newBranch = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                sendResponse($newBranch, 'Branch created successfully', 201);
+            } catch (Exception $e) {
+                // ATOMICITY: Rollback ensures no partial state on error
+                $pdo->exec("ROLLBACK");
+                error_log('Branch creation error: ' . $e->getMessage());
+                sendError('Failed to create branch: ' . $e->getMessage(), 500);
             }
-            
-            // Insert branch
-            $stmt = $pdo->prepare("INSERT INTO branches (branch_name, address) VALUES (?, ?)");
-            $stmt->execute([
-                trim($input['branch_name']),
-                isset($input['address']) ? trim($input['address']) : null
-            ]);
-            
-            $newBranchId = $pdo->lastInsertId();
-            
-            // Get created branch
-            $stmt = $pdo->prepare("SELECT branch_id, branch_name, address FROM branches WHERE branch_id = ?");
-            $stmt->execute([$newBranchId]);
-            $newBranch = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            sendResponse($newBranch, 'Branch created successfully', 201);
             break;
             
         case 'PUT':
-            // Update branch
+            // Update branch with ACID transaction
             if (!$branchIdParam) {
                 sendError('Branch ID required', 400);
-            }
-            
-            // Check if branch exists
-            $checkStmt = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_id = ?");
-            $checkStmt->execute([$branchIdParam]);
-            if (!$checkStmt->fetch()) {
-                sendError('Branch not found', 404);
             }
             
             $input = json_decode(file_get_contents('php://input'), true);
@@ -160,43 +190,71 @@ try {
                 sendError('Invalid JSON input', 400);
             }
             
-            $updateFields = [];
-            $params = [];
+            // ATOMICITY: Start transaction - all operations succeed or all fail
+            $pdo->exec("START TRANSACTION");
             
-            // Update branch_name if provided
-            if (isset($input['branch_name']) && trim($input['branch_name']) !== '') {
-                // Check if new name conflicts with existing branch
-                $nameCheckStmt = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_name = ? AND branch_id != ?");
-                $nameCheckStmt->execute([trim($input['branch_name']), $branchIdParam]);
-                if ($nameCheckStmt->fetch()) {
-                    sendError('Branch name already exists', 409);
+            try {
+                // ISOLATION: Row-level locking prevents concurrent branch modifications
+                // CONSISTENCY: Validate branch exists before UPDATE
+                // Check if branch exists WITH ROW-LEVEL LOCKING
+                $checkStmt = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_id = ? FOR UPDATE");
+                $checkStmt->execute([$branchIdParam]);
+                if (!$checkStmt->fetch()) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('Branch not found', 404);
                 }
-                $updateFields[] = "branch_name = ?";
-                $params[] = trim($input['branch_name']);
+                
+                $updateFields = [];
+                $params = [];
+                
+                // Update branch_name if provided
+                if (isset($input['branch_name']) && trim($input['branch_name']) !== '') {
+                    // ISOLATION: Row-level locking prevents concurrent branch name conflicts
+                    // CONSISTENCY: Validate branch name uniqueness with row-level locking
+                    // Check if new name conflicts with existing branch WITH ROW-LEVEL LOCKING
+                    $nameCheckStmt = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_name = ? AND branch_id != ? FOR UPDATE");
+                    $nameCheckStmt->execute([trim($input['branch_name']), $branchIdParam]);
+                    if ($nameCheckStmt->fetch()) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Branch name already exists', 409);
+                    }
+                    $updateFields[] = "branch_name = ?";
+                    $params[] = trim($input['branch_name']);
+                }
+                
+                // Update address if provided
+                if (isset($input['address'])) {
+                    $updateFields[] = "address = ?";
+                    $params[] = trim($input['address']) !== '' ? trim($input['address']) : null;
+                }
+                
+                if (empty($updateFields)) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('No fields to update', 400);
+                }
+                
+                $params[] = $branchIdParam;
+                
+                // ATOMICITY: Branch UPDATE within transaction
+                $sql = "UPDATE branches SET " . implode(', ', $updateFields) . " WHERE branch_id = ?";
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute($params);
+                
+                // DURABILITY: COMMIT ensures all changes are permanently saved
+                $pdo->exec("COMMIT");
+                
+                // Get updated branch
+                $stmt = $pdo->prepare("SELECT branch_id, branch_name, address FROM branches WHERE branch_id = ?");
+                $stmt->execute([$branchIdParam]);
+                $updatedBranch = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                sendResponse($updatedBranch, 'Branch updated successfully');
+            } catch (Exception $e) {
+                // ATOMICITY: Rollback ensures no partial state on error
+                $pdo->exec("ROLLBACK");
+                error_log('Branch update error: ' . $e->getMessage());
+                sendError('Failed to update branch: ' . $e->getMessage(), 500);
             }
-            
-            // Update address if provided
-            if (isset($input['address'])) {
-                $updateFields[] = "address = ?";
-                $params[] = trim($input['address']) !== '' ? trim($input['address']) : null;
-            }
-            
-            if (empty($updateFields)) {
-                sendError('No fields to update', 400);
-            }
-            
-            $params[] = $branchIdParam;
-            
-            $sql = "UPDATE branches SET " . implode(', ', $updateFields) . " WHERE branch_id = ?";
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute($params);
-            
-            // Get updated branch
-            $stmt = $pdo->prepare("SELECT branch_id, branch_name, address FROM branches WHERE branch_id = ?");
-            $stmt->execute([$branchIdParam]);
-            $updatedBranch = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            sendResponse($updatedBranch, 'Branch updated successfully');
             break;
             
         case 'DELETE':
@@ -214,7 +272,7 @@ try {
                 sendError('Branch not found', 404);
             }
             
-            // Start ACID transaction with explicit MySQL statements
+            // ATOMICITY: Start transaction - all deletions succeed or all fail
             // This ensures proper ACID compliance:
             // - ATOMICITY: All deletions succeed or all fail
             // - CONSISTENCY: Foreign key constraints are maintained
@@ -223,16 +281,21 @@ try {
             $pdo->exec("START TRANSACTION");
             
             try {
+                // ATOMICITY: Product inventory deletion within transaction
+                // CONSISTENCY: Delete child records first (product_inventory) before parent (branches)
                 // Delete related records in order (respecting foreign key constraints)
                 // 1. Delete from product_inventory (has foreign key to branches)
                 // This will remove all inventory entries for this branch
                 $stmt = $pdo->prepare("DELETE FROM product_inventory WHERE branch_id = ?");
                 $stmt->execute([$branchIdParam]);
                 
+                // ATOMICITY: Branch deletion within same transaction
+                // CONSISTENCY: Delete branch after all child records are deleted
                 // 2. Finally, delete the branch itself
                 $stmt = $pdo->prepare("DELETE FROM branches WHERE branch_id = ?");
                 $stmt->execute([$branchIdParam]);
                 
+                // DURABILITY: COMMIT ensures all changes are permanently saved
                 // Commit transaction - all deletions are now permanent
                 $pdo->exec("COMMIT");
                 

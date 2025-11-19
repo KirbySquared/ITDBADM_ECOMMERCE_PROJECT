@@ -283,29 +283,62 @@ function Products() {
     setLoading(true)
     setError(null)
     try {
-      // Ensure token is valid before making request
-      const { ensureValidToken } = await import('../utils/tokenRefresh')
-      const tokenValid = await ensureValidToken()
-      if (!tokenValid) {
-        return // ensureValidToken already handles redirect
-      }
+      console.log('[Products] ========== FETCHING PRODUCTS ==========')
+      console.log('[Products] Current state:', {
+        isAuthenticated: !!user,
+        userBranchId,
+        userBranchIdFromUser: user?.branch_id,
+        currency,
+        q,
+        categoryId,
+        genreId,
+        price,
+        inStock,
+        sort,
+        page,
+        authLoading
+      })
       
+      // Ensure token is valid before making request (only if token exists)
       const token = localStorage.getItem('token')
+      if (token) {
+        const { ensureValidToken } = await import('../utils/tokenRefresh')
+        const tokenValid = await ensureValidToken()
+        console.log('[Products] Token validation result:', tokenValid)
+        if (!tokenValid) {
+          console.log('[Products] Token invalid, returning early')
+          return // ensureValidToken already handles redirect
+        }
+      } else {
+        console.log('[Products] No token found - proceeding as non-logged-in user')
+      }
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       }
       if (token) {
         headers['Authorization'] = `Bearer ${token}`
+        console.log('[Products] Token found in localStorage, adding to headers')
+      } else {
+        console.log('[Products] No token in localStorage - making request as non-logged-in user')
       }
       
       const qs = buildQS()
-      const res = await fetch(ENDPOINTS.search(qs), { 
+      const searchUrl = ENDPOINTS.search(qs)
+      console.log('[Products] Search URL:', searchUrl)
+      console.log('[Products] Query string:', qs)
+      console.log('[Products] Request headers:', { ...headers, Authorization: token ? 'Bearer [REDACTED]' : 'none' })
+      
+      const res = await fetch(searchUrl, { 
         credentials: 'include',
         headers
       })
 
+      console.log('[Products] Response status:', res.status, res.statusText)
+      console.log('[Products] Response headers:', Object.fromEntries(res.headers.entries()))
+
       // Handle expired token - redirect to login
       if (res.status === 401) {
+        console.log('[Products] Got 401, clearing auth and redirecting')
         localStorage.removeItem('token')
         localStorage.removeItem('user')
         window.dispatchEvent(new Event('authStateChanged'))
@@ -317,31 +350,57 @@ function Products() {
       if (res.status === 404) {
         // fallback to list
         console.warn('[Products] /products/search not found. Falling back to /products list.')
-        const listRes = await fetch(ENDPOINTS.list(currency, userBranchId), {
+        const listUrl = ENDPOINTS.list(currency, userBranchId)
+        console.log('[Products] Fallback list URL:', listUrl)
+        const listRes = await fetch(listUrl, {
           credentials: 'include',
           headers
         })
         const listJson = await listRes.json()
+        console.log('[Products] Fallback list response:', {
+          success: listJson.success,
+          productsCount: listJson.data?.products?.length ?? listJson.products?.length ?? 0
+        })
         if (!listRes.ok || listJson.success === false) {
           throw new Error(listJson.message || 'Failed to load products')
         }
         const rows: Product[] = listJson.data?.products ?? listJson.products ?? []
         const filtered = applyClientFilters(rows)
+        console.log('[Products] Fallback: filtered products count:', filtered.length)
         setProducts(filtered)
         setPagination(null)
         setParams(new URLSearchParams(qs), { replace: true })
         return
       }
 
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json().catch((err) => {
+        console.error('[Products] Failed to parse JSON response:', err)
+        return {}
+      })
+      
+      console.log('[Products] Response data:', {
+        success: data.success,
+        message: data.message,
+        productsCount: data?.data?.products?.length ?? 0,
+        pagination: data?.data?.pagination,
+        firstProduct: data?.data?.products?.[0] || null
+      })
+      
       if (!res.ok || data.success === false) {
+        console.error('[Products] Request failed:', { status: res.status, data })
         throw new Error(data.message || 'Search failed')
       }
-      setProducts(data.data.products || [])
+      
+      const products = data.data.products || []
+      console.log('[Products] Setting products:', products.length, 'products')
+      console.log('[Products] Setting pagination:', data.data.pagination)
+      setProducts(products)
       setPagination(data.data.pagination || null)
       // Update URL without causing page reload
       setParams(new URLSearchParams(buildQS()), { replace: true })
+      console.log('[Products] ========== END FETCHING PRODUCTS ==========')
     } catch (e: any) {
+      console.error('[Products] Error in fetchSearch:', e)
       setError(e.message || 'Failed to fetch products')
       setProducts([])
       setPagination(null)

@@ -15,6 +15,20 @@
  * - Requires valid JWT token
  * - Validates staff role and branch_id
  * - All operations restricted to staff's branch_id
+ * 
+ * ACID COMPLIANCE ANALYSIS:
+ * 
+ * add-stock Operation:
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates product exists, enforces quantity rules
+ *   ISOLATION: GOOD - FOR UPDATE prevents concurrent modifications
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * damage Operation:
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates sufficient stock before reduction
+ *   ISOLATION: GOOD - FOR UPDATE prevents concurrent modifications
+ *   DURABILITY: GOOD - COMMIT ensures persistence
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
@@ -189,66 +203,132 @@ try {
             $input = json_decode(file_get_contents('php://input'), true);
             
             if ($action === 'add-stock') {
-                // Add stock to branch inventory
+                // Add stock to branch inventory with ACID transaction
+                // ATOMICITY: Product check, inventory check, and stock update happen atomically
+                // CONSISTENCY: Validates product exists, enforces quantity rules
+                // ISOLATION: FOR UPDATE prevents concurrent stock modifications
+                // DURABILITY: COMMIT ensures persistence
                 if (!isset($input['quantity']) || !is_numeric($input['quantity']) || $input['quantity'] <= 0) {
                     sendError('Quantity must be a positive number', 400);
                 }
                 
                 $quantity = (int)$input['quantity'];
                 
-                // Check if product exists
-                $checkProduct = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ?");
-                $checkProduct->execute([$productIdParam]);
-                if (!$checkProduct->fetch()) {
-                    sendError('Product not found', 404);
+                // ATOMICITY: Start transaction - all operations succeed or all fail
+                $pdo->exec("START TRANSACTION");
+                
+                try {
+                    // CONSISTENCY: Validate product exists
+                    // Check if product exists
+                    $checkProduct = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ?");
+                    $checkProduct->execute([$productIdParam]);
+                    if (!$checkProduct->fetch()) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Product not found', 404);
+                    }
+                    
+                    // ISOLATION: Row-level locking prevents concurrent inventory modifications
+                    // Check if inventory entry exists WITH ROW-LEVEL LOCKING
+                    // FOR UPDATE prevents concurrent modifications
+                    $checkInv = $pdo->prepare("
+                        SELECT stock_qty 
+                        FROM product_inventory 
+                        WHERE product_id = ? AND branch_id = ? 
+                        FOR UPDATE
+                    ");
+                    $checkInv->execute([$productIdParam, $branchId]);
+                    $existing = $checkInv->fetch();
+                    
+                    // ATOMICITY: Stock update within transaction
+                    if ($existing) {
+                        // Add to existing stock
+                        $stmt = $pdo->prepare("
+                            UPDATE product_inventory 
+                            SET stock_qty = stock_qty + ? 
+                            WHERE product_id = ? AND branch_id = ?
+                        ");
+                        $stmt->execute([$quantity, $productIdParam, $branchId]);
+                    } else {
+                        // Create new inventory entry
+                        $stmt = $pdo->prepare("
+                            INSERT INTO product_inventory (product_id, branch_id, stock_qty) 
+                            VALUES (?, ?, ?)
+                        ");
+                        $stmt->execute([$productIdParam, $branchId, $quantity]);
+                    }
+                    
+                    // DURABILITY: COMMIT ensures all changes are permanently saved
+                    $pdo->exec("COMMIT");
+                    sendResponse(['message' => "Added $quantity units to inventory"], 'Stock added successfully');
+                } catch (Exception $e) {
+                    // ATOMICITY: Rollback ensures no partial state on error
+                    $pdo->exec("ROLLBACK");
+                    error_log('Add stock error: ' . $e->getMessage());
+                    sendError('Failed to add stock: ' . $e->getMessage(), 500);
                 }
-                
-                // Check if inventory entry exists
-                $checkInv = $pdo->prepare("SELECT stock_qty FROM product_inventory WHERE product_id = ? AND branch_id = ?");
-                $checkInv->execute([$productIdParam, $branchId]);
-                $existing = $checkInv->fetch();
-                
-                if ($existing) {
-                    // Add to existing stock
-                    $stmt = $pdo->prepare("UPDATE product_inventory SET stock_qty = stock_qty + ? WHERE product_id = ? AND branch_id = ?");
-                    $stmt->execute([$quantity, $productIdParam, $branchId]);
-                } else {
-                    // Create new inventory entry
-                    $stmt = $pdo->prepare("INSERT INTO product_inventory (product_id, branch_id, stock_qty) VALUES (?, ?, ?)");
-                    $stmt->execute([$productIdParam, $branchId, $quantity]);
-                }
-                
-                sendResponse(['message' => "Added $quantity units to inventory"], 'Stock added successfully');
                 
             } elseif ($action === 'damage') {
-                // Mark items as damaged (reduce stock)
+                // Mark items as damaged (reduce stock) with ACID transaction
+                // ATOMICITY: Product check, stock validation, and stock reduction happen atomically
+                // CONSISTENCY: Validates sufficient stock before reduction
+                // ISOLATION: FOR UPDATE prevents concurrent stock modifications
+                // DURABILITY: COMMIT ensures persistence
                 if (!isset($input['quantity']) || !is_numeric($input['quantity']) || $input['quantity'] <= 0) {
                     sendError('Quantity must be a positive number', 400);
                 }
                 
                 $quantity = (int)$input['quantity'];
                 
-                // Check if product exists
-                $checkProduct = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ?");
-                $checkProduct->execute([$productIdParam]);
-                if (!$checkProduct->fetch()) {
-                    sendError('Product not found', 404);
+                // ATOMICITY: Start transaction - all operations succeed or all fail
+                $pdo->exec("START TRANSACTION");
+                
+                try {
+                    // CONSISTENCY: Validate product exists
+                    // Check if product exists
+                    $checkProduct = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ?");
+                    $checkProduct->execute([$productIdParam]);
+                    if (!$checkProduct->fetch()) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Product not found', 404);
+                    }
+                    
+                    // ISOLATION: Row-level locking prevents concurrent stock modifications
+                    // CONSISTENCY: Validate sufficient stock before reduction
+                    // Check current stock WITH ROW-LEVEL LOCKING
+                    // FOR UPDATE prevents concurrent modifications
+                    $checkInv = $pdo->prepare("
+                        SELECT stock_qty 
+                        FROM product_inventory 
+                        WHERE product_id = ? AND branch_id = ? 
+                        FOR UPDATE
+                    ");
+                    $checkInv->execute([$productIdParam, $branchId]);
+                    $existing = $checkInv->fetch();
+                    
+                    // CONSISTENCY: Enforce stock limits - cannot mark more as damaged than available
+                    if (!$existing || $existing['stock_qty'] < $quantity) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Insufficient stock to mark as damaged', 400);
+                    }
+                    
+                    // ATOMICITY: Stock reduction within transaction
+                    // Reduce stock
+                    $stmt = $pdo->prepare("
+                        UPDATE product_inventory 
+                        SET stock_qty = GREATEST(0, stock_qty - ?) 
+                        WHERE product_id = ? AND branch_id = ?
+                    ");
+                    $stmt->execute([$quantity, $productIdParam, $branchId]);
+                    
+                    // DURABILITY: COMMIT ensures all changes are permanently saved
+                    $pdo->exec("COMMIT");
+                    sendResponse(['message' => "Marked $quantity units as damaged"], 'Items marked as damaged successfully');
+                } catch (Exception $e) {
+                    // ATOMICITY: Rollback ensures no partial state on error
+                    $pdo->exec("ROLLBACK");
+                    error_log('Mark damaged error: ' . $e->getMessage());
+                    sendError('Failed to mark items as damaged: ' . $e->getMessage(), 500);
                 }
-                
-                // Check current stock
-                $checkInv = $pdo->prepare("SELECT stock_qty FROM product_inventory WHERE product_id = ? AND branch_id = ?");
-                $checkInv->execute([$productIdParam, $branchId]);
-                $existing = $checkInv->fetch();
-                
-                if (!$existing || $existing['stock_qty'] < $quantity) {
-                    sendError('Insufficient stock to mark as damaged', 400);
-                }
-                
-                // Reduce stock
-                $stmt = $pdo->prepare("UPDATE product_inventory SET stock_qty = GREATEST(0, stock_qty - ?) WHERE product_id = ? AND branch_id = ?");
-                $stmt->execute([$quantity, $productIdParam, $branchId]);
-                
-                sendResponse(['message' => "Marked $quantity units as damaged"], 'Items marked as damaged successfully');
             } else {
                 sendError('Invalid action. Use "add-stock" or "damage"', 400);
             }

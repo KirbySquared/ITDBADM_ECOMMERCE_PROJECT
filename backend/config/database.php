@@ -58,6 +58,11 @@ try {
             PDO::ATTR_EMULATE_PREPARES => false
         ]
     );
+    
+    // Set transaction isolation level to READ COMMITTED
+    // This prevents dirty reads while allowing better concurrency than SERIALIZABLE
+    // For e-commerce, this balances consistency and performance
+    $pdo->exec("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED");
 } catch (PDOException $e) {
     // Clean any output
     if (ob_get_level()) ob_clean();

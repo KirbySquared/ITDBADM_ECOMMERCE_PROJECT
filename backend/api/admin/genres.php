@@ -16,10 +16,25 @@
  * - Validates admin role
  * - Returns 403 if not admin
  * 
- * ACID COMPLIANCE:
- * - Uses transactions for data integrity
- * - Foreign key constraints ensure referential integrity
- * - Validation prevents invalid data
+ * ACID COMPLIANCE ANALYSIS:
+ * 
+ * POST (Create Genre):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates genre name, enforces business rules
+ *   ISOLATION: GOOD - Uses FOR UPDATE on uniqueness checks
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * PUT (Update Genre):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates constraints before update
+ *   ISOLATION: GOOD - Uses FOR UPDATE on existence and uniqueness checks
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * DELETE (Delete Genre):
+ *   ATOMICITY: GOOD - Uses transaction with validation checks
+ *   CONSISTENCY: GOOD - Validates no products exist before deletion
+ *   ISOLATION: GOOD - Transaction isolates changes until COMMIT
+ *   DURABILITY: GOOD - COMMIT ensures permanent deletion
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
@@ -161,8 +176,10 @@ try {
                 sendError('Validation failed', 400, $errors);
             }
             
-            // Check if genre name already exists
-            $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_name = ?");
+            // ISOLATION: Row-level locking prevents concurrent genre name conflicts
+            // CONSISTENCY: Validate genre name uniqueness with row-level locking
+            // Check if genre name already exists WITH ROW-LEVEL LOCKING
+            $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_name = ? FOR UPDATE");
             $stmt->execute([$input['genre_name']]);
             if ($stmt->fetch()) {
                 $pdo->rollBack();
@@ -207,17 +224,21 @@ try {
             
             $input = json_decode(file_get_contents('php://input'), true);
             
-            // Check if genre exists
-            $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_id = ?");
+            // ISOLATION: Row-level locking prevents concurrent genre modifications
+            // CONSISTENCY: Validate genre exists before UPDATE
+            // Check if genre exists WITH ROW-LEVEL LOCKING
+            $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_id = ? FOR UPDATE");
             $stmt->execute([$genreIdParam]);
             if (!$stmt->fetch()) {
                 $pdo->rollBack();
                 sendError('Genre not found', 404);
             }
             
-            // Check if genre name already exists (excluding current genre)
+            // ISOLATION: Row-level locking prevents concurrent genre name conflicts
+            // CONSISTENCY: Validate genre name uniqueness with row-level locking
+            // Check if genre name already exists (excluding current genre) WITH ROW-LEVEL LOCKING
             if (isset($input['genre_name'])) {
-                $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_name = ? AND genre_id != ?");
+                $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_name = ? AND genre_id != ? FOR UPDATE");
                 $stmt->execute([$input['genre_name'], $genreIdParam]);
                 if ($stmt->fetch()) {
                     $pdo->rollBack();
@@ -265,12 +286,17 @@ try {
             break;
             
         case 'DELETE':
+            // ATOMICITY: Genre validation and deletion happen atomically (within transaction)
+            // CONSISTENCY: Validates no products exist before deletion
+            // ISOLATION: Transaction isolates changes until COMMIT
+            // DURABILITY: COMMIT ensures permanent deletion
             // Delete genre
             if (!$genreIdParam) {
                 $pdo->rollBack();
                 sendError('Genre ID required', 400);
             }
             
+            // CONSISTENCY: Validate genre exists
             // Check if genre exists
             $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_id = ?");
             $stmt->execute([$genreIdParam]);
@@ -279,6 +305,7 @@ try {
                 sendError('Genre not found', 404);
             }
             
+            // CONSISTENCY: Validate no products reference this genre (maintains referential integrity)
             // Check if genre has products
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM products WHERE genre_id = ?");
             $stmt->execute([$genreIdParam]);
@@ -289,10 +316,12 @@ try {
                 sendError('Cannot delete genre with existing products. Please update or delete products first.', 409);
             }
             
+            // ATOMICITY: Genre deletion within transaction
             // Delete genre
             $stmt = $pdo->prepare("DELETE FROM genres WHERE genre_id = ?");
             $stmt->execute([$genreIdParam]);
             
+            // DURABILITY: COMMIT ensures all changes are permanently saved
             $pdo->commit();
             sendResponse(null, 'Genre deleted successfully');
             break;

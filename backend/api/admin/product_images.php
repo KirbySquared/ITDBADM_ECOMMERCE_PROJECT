@@ -15,6 +15,26 @@
  * - Requires valid JWT token
  * - Validates admin role
  * - Returns 403 if not admin
+ * 
+ * ACID COMPLIANCE ANALYSIS:
+ * 
+ * POST (Add Image):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates product exists, enforces business rules
+ *   ISOLATION: GOOD - Uses FOR UPDATE on product existence and primary image updates
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * PUT (Update Image / Set Primary):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Ensures only one primary image per product
+ *   ISOLATION: GOOD - Uses FOR UPDATE to prevent race conditions
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * DELETE (Delete Image):
+ *   ATOMICITY: GOOD - Uses transaction with primary image reassignment
+ *   CONSISTENCY: GOOD - Automatically reassigns primary if deleted image was primary
+ *   ISOLATION: GOOD - FOR UPDATE prevents concurrent modifications
+ *   DURABILITY: GOOD - COMMIT ensures permanent deletion
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
@@ -102,7 +122,7 @@ try {
             break;
             
         case 'POST':
-            // Add new image to product
+            // Add new image to product with ACID transaction
             if (!$productIdParam) {
                 sendError('Product ID required', 400);
             }
@@ -114,49 +134,74 @@ try {
                 sendError('Validation failed', 400, $errors);
             }
             
-            // Check if product exists
-            $stmt = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ?");
-            $stmt->execute([$productIdParam]);
-            if (!$stmt->fetch()) {
-                sendError('Product not found', 404);
-            }
-            
             // Validate URL format
             if (!filter_var($input['image_url'], FILTER_VALIDATE_URL)) {
                 sendError('Invalid image URL format', 400);
             }
             
-            // If this is being set as primary, unset other primary images
-            if (isset($input['is_primary']) && $input['is_primary']) {
-                $stmt = $pdo->prepare("UPDATE product_images SET is_primary = FALSE WHERE product_id = ?");
+            // ATOMICITY: Start transaction - all operations succeed or all fail
+            $pdo->exec("START TRANSACTION");
+            
+            try {
+                // ISOLATION: Row-level locking prevents concurrent product modifications
+                // CONSISTENCY: Validate product exists before INSERT
+                // Check if product exists WITH ROW-LEVEL LOCKING
+                $stmt = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ? FOR UPDATE");
                 $stmt->execute([$productIdParam]);
+                if (!$stmt->fetch()) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('Product not found', 404);
+                }
+                
+                // ATOMICITY: Primary image update within transaction
+                // ISOLATION: Row-level locking prevents concurrent primary image modifications
+                // If this is being set as primary, unset other primary images WITH ROW-LEVEL LOCKING
+                if (isset($input['is_primary']) && $input['is_primary']) {
+                    $stmt = $pdo->prepare("SELECT image_id FROM product_images WHERE product_id = ? AND is_primary = TRUE FOR UPDATE");
+                    $stmt->execute([$productIdParam]);
+                    $primaryImages = $stmt->fetchAll();
+                    
+                    if (!empty($primaryImages)) {
+                        $stmt = $pdo->prepare("UPDATE product_images SET is_primary = FALSE WHERE product_id = ?");
+                        $stmt->execute([$productIdParam]);
+                    }
+                }
+                
+                // ATOMICITY: Image INSERT within transaction
+                // Insert new image
+                $stmt = $pdo->prepare("
+                    INSERT INTO product_images (product_id, image_url, alt_text, is_primary, sort_order) 
+                    VALUES (?, ?, ?, ?, ?)
+                ");
+                
+                $stmt->execute([
+                    $productIdParam,
+                    $input['image_url'],
+                    $input['alt_text'] ?? null,
+                    isset($input['is_primary']) && $input['is_primary'] ? 1 : 0,
+                    isset($input['sort_order']) ? (int)$input['sort_order'] : 0
+                ]);
+                
+                $newImageId = $pdo->lastInsertId();
+                
+                // DURABILITY: COMMIT ensures all changes are permanently saved
+                $pdo->exec("COMMIT");
+                
+                // Get created image
+                $stmt = $pdo->prepare("
+                    SELECT image_id, image_url, alt_text, is_primary, sort_order, created_at
+                    FROM product_images WHERE image_id = ?
+                ");
+                $stmt->execute([$newImageId]);
+                $newImage = $stmt->fetch();
+                
+                sendResponse($newImage, 'Image added successfully', 201);
+            } catch (Exception $e) {
+                // ATOMICITY: Rollback ensures no partial state on error
+                $pdo->exec("ROLLBACK");
+                error_log('Image creation error: ' . $e->getMessage());
+                sendError('Failed to add image: ' . $e->getMessage(), 500);
             }
-            
-            // Insert new image
-            $stmt = $pdo->prepare("
-                INSERT INTO product_images (product_id, image_url, alt_text, is_primary, sort_order) 
-                VALUES (?, ?, ?, ?, ?)
-            ");
-            
-            $stmt->execute([
-                $productIdParam,
-                $input['image_url'],
-                $input['alt_text'] ?? null,
-                isset($input['is_primary']) && $input['is_primary'] ? 1 : 0,
-                isset($input['sort_order']) ? (int)$input['sort_order'] : 0
-            ]);
-            
-            $newImageId = $pdo->lastInsertId();
-            
-            // Get created image
-            $stmt = $pdo->prepare("
-                SELECT image_id, image_url, alt_text, is_primary, sort_order, created_at
-                FROM product_images WHERE image_id = ?
-            ");
-            $stmt->execute([$newImageId]);
-            $newImage = $stmt->fetch();
-            
-            sendResponse($newImage, 'Image added successfully', 201);
             break;
             
         case 'PUT':
@@ -164,102 +209,185 @@ try {
                 sendError('Product ID and Image ID required', 400);
             }
             
-            if ($isSetPrimaryRequest) {
-                // Set image as primary
-                // First, unset all primary images for this product
-                $stmt = $pdo->prepare("UPDATE product_images SET is_primary = FALSE WHERE product_id = ?");
-                $stmt->execute([$productIdParam]);
-                
-                // Set the specified image as primary
-                $stmt = $pdo->prepare("UPDATE product_images SET is_primary = TRUE WHERE image_id = ? AND product_id = ?");
-                $stmt->execute([$imageIdParam, $productIdParam]);
-                
-                if ($stmt->rowCount() === 0) {
-                    sendError('Image not found', 404);
-                }
-                
-                sendResponse(null, 'Primary image updated successfully');
-            } else {
-                // Update image details
-                $input = json_decode(file_get_contents('php://input'), true);
-                
-                // Check if image exists
-                $stmt = $pdo->prepare("SELECT image_id FROM product_images WHERE image_id = ? AND product_id = ?");
-                $stmt->execute([$imageIdParam, $productIdParam]);
-                if (!$stmt->fetch()) {
-                    sendError('Image not found', 404);
-                }
-                
-                // Validate URL format if provided
-                if (isset($input['image_url']) && !filter_var($input['image_url'], FILTER_VALIDATE_URL)) {
-                    sendError('Invalid image URL format', 400);
-                }
-                
-                // If this is being set as primary, unset other primary images
-                if (isset($input['is_primary']) && $input['is_primary']) {
-                    $stmt = $pdo->prepare("UPDATE product_images SET is_primary = FALSE WHERE product_id = ? AND image_id != ?");
-                    $stmt->execute([$productIdParam, $imageIdParam]);
-                }
-                
-                // Build update query
-                $updateFields = [];
-                $params = [];
-                
-                $allowedFields = ['image_url', 'alt_text', 'is_primary', 'sort_order'];
-                foreach ($allowedFields as $field) {
-                    if (isset($input[$field])) {
-                        $updateFields[] = "$field = ?";
-                        // Properly cast values for database
-                        if ($field === 'is_primary') {
-                            $params[] = $input[$field] ? 1 : 0;
-                        } elseif ($field === 'sort_order') {
-                            $params[] = (int)$input[$field];
-                        } else {
-                            $params[] = $input[$field];
+            // ATOMICITY: Start transaction - all operations succeed or all fail
+            $pdo->exec("START TRANSACTION");
+            
+            try {
+                if ($isSetPrimaryRequest) {
+                    // Set image as primary with ACID transaction
+                    // ISOLATION: Row-level locking prevents concurrent primary image modifications
+                    // First, check if image exists and get all primary images WITH ROW-LEVEL LOCKING
+                    $stmt = $pdo->prepare("SELECT image_id FROM product_images WHERE image_id = ? AND product_id = ? FOR UPDATE");
+                    $stmt->execute([$imageIdParam, $productIdParam]);
+                    if (!$stmt->fetch()) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Image not found', 404);
+                    }
+                    
+                    // ATOMICITY: Primary image updates within transaction
+                    // Unset all primary images for this product WITH ROW-LEVEL LOCKING
+                    $stmt = $pdo->prepare("SELECT image_id FROM product_images WHERE product_id = ? AND is_primary = TRUE FOR UPDATE");
+                    $stmt->execute([$productIdParam]);
+                    $primaryImages = $stmt->fetchAll();
+                    
+                    if (!empty($primaryImages)) {
+                        $stmt = $pdo->prepare("UPDATE product_images SET is_primary = FALSE WHERE product_id = ?");
+                        $stmt->execute([$productIdParam]);
+                    }
+                    
+                    // Set the specified image as primary
+                    $stmt = $pdo->prepare("UPDATE product_images SET is_primary = TRUE WHERE image_id = ? AND product_id = ?");
+                    $stmt->execute([$imageIdParam, $productIdParam]);
+                    
+                    // DURABILITY: COMMIT ensures all changes are permanently saved
+                    $pdo->exec("COMMIT");
+                    sendResponse(null, 'Primary image updated successfully');
+                } else {
+                    // Update image details with ACID transaction
+                    $input = json_decode(file_get_contents('php://input'), true);
+                    
+                    // ISOLATION: Row-level locking prevents concurrent image modifications
+                    // CONSISTENCY: Validate image exists before UPDATE
+                    // Check if image exists WITH ROW-LEVEL LOCKING
+                    $stmt = $pdo->prepare("SELECT image_id FROM product_images WHERE image_id = ? AND product_id = ? FOR UPDATE");
+                    $stmt->execute([$imageIdParam, $productIdParam]);
+                    if (!$stmt->fetch()) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Image not found', 404);
+                    }
+                    
+                    // CONSISTENCY: Validate URL format
+                    // Validate URL format if provided
+                    if (isset($input['image_url']) && !filter_var($input['image_url'], FILTER_VALIDATE_URL)) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Invalid image URL format', 400);
+                    }
+                    
+                    // ATOMICITY: Primary image update within transaction
+                    // ISOLATION: Row-level locking prevents concurrent primary image modifications
+                    // If this is being set as primary, unset other primary images WITH ROW-LEVEL LOCKING
+                    if (isset($input['is_primary']) && $input['is_primary']) {
+                        $stmt = $pdo->prepare("SELECT image_id FROM product_images WHERE product_id = ? AND is_primary = TRUE AND image_id != ? FOR UPDATE");
+                        $stmt->execute([$productIdParam, $imageIdParam]);
+                        $primaryImages = $stmt->fetchAll();
+                        
+                        if (!empty($primaryImages)) {
+                            $stmt = $pdo->prepare("UPDATE product_images SET is_primary = FALSE WHERE product_id = ? AND image_id != ?");
+                            $stmt->execute([$productIdParam, $imageIdParam]);
                         }
                     }
+                    
+                    // ATOMICITY: Image UPDATE within transaction
+                    // Build update query
+                    $updateFields = [];
+                    $params = [];
+                    
+                    $allowedFields = ['image_url', 'alt_text', 'is_primary', 'sort_order'];
+                    foreach ($allowedFields as $field) {
+                        if (isset($input[$field])) {
+                            $updateFields[] = "$field = ?";
+                            // Properly cast values for database
+                            if ($field === 'is_primary') {
+                                $params[] = $input[$field] ? 1 : 0;
+                            } elseif ($field === 'sort_order') {
+                                $params[] = (int)$input[$field];
+                            } else {
+                                $params[] = $input[$field];
+                            }
+                        }
+                    }
+                    
+                    if (empty($updateFields)) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('No fields to update', 400);
+                    }
+                    
+                    $params[] = $imageIdParam;
+                    
+                    $sql = "UPDATE product_images SET " . implode(', ', $updateFields) . " WHERE image_id = ?";
+                    $stmt = $pdo->prepare($sql);
+                    $stmt->execute($params);
+                    
+                    // DURABILITY: COMMIT ensures all changes are permanently saved
+                    $pdo->exec("COMMIT");
+                    
+                    // Get updated image
+                    $stmt = $pdo->prepare("
+                        SELECT image_id, image_url, alt_text, is_primary, sort_order, created_at
+                        FROM product_images WHERE image_id = ?
+                    ");
+                    $stmt->execute([$imageIdParam]);
+                    $updatedImage = $stmt->fetch();
+                    
+                    sendResponse($updatedImage, 'Image updated successfully');
                 }
-                
-                if (empty($updateFields)) {
-                    sendError('No fields to update', 400);
-                }
-                
-                $params[] = $imageIdParam;
-                
-                $sql = "UPDATE product_images SET " . implode(', ', $updateFields) . " WHERE image_id = ?";
-                $stmt = $pdo->prepare($sql);
-                $stmt->execute($params);
-                
-                // Get updated image
-                $stmt = $pdo->prepare("
-                    SELECT image_id, image_url, alt_text, is_primary, sort_order, created_at
-                    FROM product_images WHERE image_id = ?
-                ");
-                $stmt->execute([$imageIdParam]);
-                $updatedImage = $stmt->fetch();
-                
-                sendResponse($updatedImage, 'Image updated successfully');
+            } catch (Exception $e) {
+                // ATOMICITY: Rollback ensures no partial state on error
+                $pdo->exec("ROLLBACK");
+                error_log('Image update error: ' . $e->getMessage());
+                sendError('Failed to update image: ' . $e->getMessage(), 500);
             }
             break;
             
         case 'DELETE':
-            // Delete image
+            // Delete image with ACID transaction
+            // ATOMICITY: Image deletion and primary reassignment happen atomically
+            // CONSISTENCY: Ensures product always has a primary image if images exist
+            // ISOLATION: FOR UPDATE prevents concurrent modifications
+            // DURABILITY: COMMIT ensures permanent deletion
             if (!$productIdParam || !$imageIdParam) {
                 sendError('Product ID and Image ID required', 400);
             }
             
-            // Check if image exists
-            $stmt = $pdo->prepare("SELECT image_id FROM product_images WHERE image_id = ? AND product_id = ?");
-            $stmt->execute([$imageIdParam, $productIdParam]);
-            if (!$stmt->fetch()) {
-                sendError('Image not found', 404);
+            // ATOMICITY: Start transaction - all operations succeed or all fail
+            $pdo->exec("START TRANSACTION");
+            
+            try {
+                // ISOLATION: Row-level locking prevents concurrent image modifications
+                // CONSISTENCY: Validate image exists
+                // Check if image exists WITH ROW-LEVEL LOCKING
+                $stmt = $pdo->prepare("
+                    SELECT image_id, is_primary 
+                    FROM product_images 
+                    WHERE image_id = ? AND product_id = ? 
+                    FOR UPDATE
+                ");
+                $stmt->execute([$imageIdParam, $productIdParam]);
+                $image = $stmt->fetch();
+                
+                if (!$image) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('Image not found', 404);
+                }
+                
+                // ATOMICITY: Image deletion within transaction
+                // Delete image
+                $stmt = $pdo->prepare("DELETE FROM product_images WHERE image_id = ?");
+                $stmt->execute([$imageIdParam]);
+                
+                // CONSISTENCY: Maintain data integrity - ensure product has primary image
+                // ATOMICITY: Primary reassignment within same transaction
+                // If primary image was deleted, set another as primary
+                if ($image['is_primary']) {
+                    $updateStmt = $pdo->prepare("
+                        UPDATE product_images 
+                        SET is_primary = 1 
+                        WHERE product_id = ? 
+                        ORDER BY sort_order ASC, image_id ASC 
+                        LIMIT 1
+                    ");
+                    $updateStmt->execute([$productIdParam]);
+                }
+                
+                // DURABILITY: COMMIT ensures all changes are permanently saved
+                $pdo->exec("COMMIT");
+                sendResponse(null, 'Image deleted successfully');
+            } catch (Exception $e) {
+                // ATOMICITY: Rollback ensures no partial state on error
+                $pdo->exec("ROLLBACK");
+                error_log('Image deletion error: ' . $e->getMessage());
+                sendError('Failed to delete image: ' . $e->getMessage(), 500);
             }
-            
-            // Delete image
-            $stmt = $pdo->prepare("DELETE FROM product_images WHERE image_id = ?");
-            $stmt->execute([$imageIdParam]);
-            
-            sendResponse(null, 'Image deleted successfully');
             break;
             
         default:

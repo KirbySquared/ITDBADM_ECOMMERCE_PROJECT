@@ -14,6 +14,14 @@
  * - Requires valid JWT token
  * - Validates staff role and branch_id
  * - Returns 403 if not staff or order doesn't belong to staff's branch
+ * 
+ * ACID COMPLIANCE ANALYSIS:
+ * 
+ * PUT (Update Order Status):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates order belongs to staff's branch, enforces status progression
+ *   ISOLATION: GOOD - Uses FOR UPDATE on order existence check
+ *   DURABILITY: GOOD - COMMIT ensures persistence
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
@@ -154,7 +162,7 @@ try {
             break;
             
         case 'PUT':
-            // Update order status (restricted: cannot cancel, can only progress status)
+            // Update order status with ACID transaction (restricted: cannot cancel, can only progress status)
             if (!$orderIdParam) {
                 sendError('Order ID required', 400);
             }
@@ -165,76 +173,99 @@ try {
                 sendError('Invalid JSON in request body', 400);
             }
             
-            // Check if order exists and belongs to staff's branch
-            $stmt = $pdo->prepare("SELECT order_id, status, branch_id FROM orders WHERE order_id = ?");
-            $stmt->execute([$orderIdParam]);
-            $order = $stmt->fetch();
+            // ATOMICITY: Start transaction - all operations succeed or all fail
+            $pdo->exec("START TRANSACTION");
             
-            if (!$order) {
-                sendError('Order not found', 404);
-            }
-            
-            // Verify order belongs to staff's branch
-            if ($order['branch_id'] != $branchId) {
-                sendError('Access denied. Order does not belong to your branch.', 403);
-            }
-            
-            // Validate status - staff can only progress status, not cancel
-            $allowedStatuses = ['pending', 'processing', 'shipped', 'delivered'];
-            if (isset($input['status'])) {
-                if (!in_array($input['status'], $allowedStatuses)) {
-                    sendError('Invalid order status. Staff can only update status to: pending, processing, shipped, or delivered.', 400);
+            try {
+                // ISOLATION: Row-level locking prevents concurrent order modifications
+                // CONSISTENCY: Validate order exists and belongs to staff's branch
+                // Check if order exists and belongs to staff's branch WITH ROW-LEVEL LOCKING
+                $stmt = $pdo->prepare("SELECT order_id, status, branch_id FROM orders WHERE order_id = ? FOR UPDATE");
+                $stmt->execute([$orderIdParam]);
+                $order = $stmt->fetch();
+                
+                if (!$order) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('Order not found', 404);
                 }
                 
-                // Prevent status regression (can only move forward)
-                $statusOrder = ['pending' => 1, 'processing' => 2, 'shipped' => 3, 'delivered' => 4];
-                $currentStatusOrder = $statusOrder[$order['status']] ?? 0;
-                $newStatusOrder = $statusOrder[$input['status']] ?? 0;
-                
-                if ($newStatusOrder < $currentStatusOrder) {
-                    sendError('Cannot revert order status. You can only progress the order status forward.', 400);
+                // CONSISTENCY: Verify order belongs to staff's branch
+                // Verify order belongs to staff's branch
+                if ($order['branch_id'] != $branchId) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('Access denied. Order does not belong to your branch.', 403);
                 }
-            }
-            
-            // Only allow status updates (no other fields)
-            if (isset($input['status'])) {
-                $stmt = $pdo->prepare("UPDATE orders SET status = ? WHERE order_id = ? AND branch_id = ?");
-                $stmt->execute([$input['status'], $orderIdParam, $branchId]);
                 
-                // Get updated order
-                $stmt = $pdo->prepare("
-                    SELECT o.*, u.first_name, u.last_name, u.email, u.phone
-                    FROM orders o 
-                    LEFT JOIN users u ON o.user_id = u.user_id 
-                    WHERE o.order_id = ?
-                ");
-                $stmt->execute([$orderIdParam]);
-                $updatedOrder = $stmt->fetch();
+                // CONSISTENCY: Validate status - staff can only progress status, not cancel
+                // Validate status - staff can only progress status, not cancel
+                $allowedStatuses = ['pending', 'processing', 'shipped', 'delivered'];
+                if (isset($input['status'])) {
+                    if (!in_array($input['status'], $allowedStatuses)) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Invalid order status. Staff can only update status to: pending, processing, shipped, or delivered.', 400);
+                    }
+                    
+                    // Prevent status regression (can only move forward)
+                    $statusOrder = ['pending' => 1, 'processing' => 2, 'shipped' => 3, 'delivered' => 4];
+                    $currentStatusOrder = $statusOrder[$order['status']] ?? 0;
+                    $newStatusOrder = $statusOrder[$input['status']] ?? 0;
+                    
+                    if ($newStatusOrder < $currentStatusOrder) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Cannot revert order status. You can only progress the order status forward.', 400);
+                    }
+                }
                 
-                // Get order items
-                $stmt = $pdo->prepare("
-                    SELECT oi.*, p.product_name, p.brand, p.model
-                    FROM order_items oi
-                    LEFT JOIN products p ON oi.product_id = p.product_id
-                    WHERE oi.order_id = ?
-                    ORDER BY oi.order_item_id ASC
-                ");
-                $stmt->execute([$orderIdParam]);
-                $updatedOrder['items'] = $stmt->fetchAll();
-                
-                // Get payment details if exists
-                $stmt = $pdo->prepare("
-                    SELECT payment_id, payment_method, payment_status, amount, currency, transaction_id, payment_date
-                    FROM payments 
-                    WHERE order_id = ?
-                ");
-                $stmt->execute([$orderIdParam]);
-                $payment = $stmt->fetch();
-                $updatedOrder['payment'] = $payment;
-                
-                sendResponse($updatedOrder, 'Order status updated successfully');
-            } else {
-                sendError('No valid fields to update', 400);
+                // ATOMICITY: Order status UPDATE within transaction
+                // Only allow status updates (no other fields)
+                if (isset($input['status'])) {
+                    $stmt = $pdo->prepare("UPDATE orders SET status = ? WHERE order_id = ? AND branch_id = ?");
+                    $stmt->execute([$input['status'], $orderIdParam, $branchId]);
+                    
+                    // DURABILITY: COMMIT ensures all changes are permanently saved
+                    $pdo->exec("COMMIT");
+                    
+                    // Get updated order
+                    $stmt = $pdo->prepare("
+                        SELECT o.*, u.first_name, u.last_name, u.email, u.phone
+                        FROM orders o 
+                        LEFT JOIN users u ON o.user_id = u.user_id 
+                        WHERE o.order_id = ?
+                    ");
+                    $stmt->execute([$orderIdParam]);
+                    $updatedOrder = $stmt->fetch();
+                    
+                    // Get order items
+                    $stmt = $pdo->prepare("
+                        SELECT oi.*, p.product_name, p.brand, p.model
+                        FROM order_items oi
+                        LEFT JOIN products p ON oi.product_id = p.product_id
+                        WHERE oi.order_id = ?
+                        ORDER BY oi.order_item_id ASC
+                    ");
+                    $stmt->execute([$orderIdParam]);
+                    $updatedOrder['items'] = $stmt->fetchAll();
+                    
+                    // Get payment details if exists
+                    $stmt = $pdo->prepare("
+                        SELECT payment_id, payment_method, payment_status, amount, currency, transaction_id, payment_date
+                        FROM payments 
+                        WHERE order_id = ?
+                    ");
+                    $stmt->execute([$orderIdParam]);
+                    $payment = $stmt->fetch();
+                    $updatedOrder['payment'] = $payment;
+                    
+                    sendResponse($updatedOrder, 'Order status updated successfully');
+                } else {
+                    $pdo->exec("ROLLBACK");
+                    sendError('No valid fields to update', 400);
+                }
+            } catch (Exception $e) {
+                // ATOMICITY: Rollback ensures no partial state on error
+                $pdo->exec("ROLLBACK");
+                error_log('Order status update error: ' . $e->getMessage());
+                sendError('Failed to update order status: ' . $e->getMessage(), 500);
             }
             break;
             

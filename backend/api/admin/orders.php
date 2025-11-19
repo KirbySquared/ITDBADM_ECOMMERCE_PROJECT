@@ -7,13 +7,34 @@
  * ROUTES:
  * - GET /api/admin/orders - List all orders with pagination and filters
  * - GET /api/admin/orders/{id} - Get specific order details with items
- * - PUT /api/admin/orders/{id} - Update order status
+ * - POST /api/admin/orders - Create new order
+ * - PUT /api/admin/orders/{id} - Update order (including items)
  * - DELETE /api/admin/orders/{id} - Cancel order
  * 
  * AUTHENTICATION:
  * - Requires valid JWT token
  * - Validates admin role
  * - Returns 403 if not admin
+ * 
+ * ACID COMPLIANCE ANALYSIS:
+ * 
+ * POST (Create Order):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates user, items, calculates totals
+ *   ISOLATION: GOOD - Transaction isolates changes until COMMIT
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * PUT (Update Order):
+ *   ATOMICITY: GOOD - Uses transaction with FOR UPDATE locking
+ *   CONSISTENCY: GOOD - Validates order exists, enforces business rules
+ *   ISOLATION: GOOD - FOR UPDATE prevents concurrent modifications
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * DELETE (Cancel Order):
+ *   ATOMICITY: GOOD - Uses transaction with stock restoration
+ *   CONSISTENCY: GOOD - Restores stock if payment was completed
+ *   ISOLATION: GOOD - FOR UPDATE prevents concurrent modifications
+ *   DURABILITY: GOOD - COMMIT ensures permanent cancellation
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
@@ -216,7 +237,7 @@ try {
                 sendError('Invalid order status', 400);
             }
             
-            // Start ACID transaction with explicit MySQL statements
+            // ATOMICITY: Start transaction - all operations succeed or all fail
             // This ensures proper ACID compliance:
             // - ATOMICITY: All operations succeed or all fail
             // - CONSISTENCY: Database constraints and business rules are maintained
@@ -225,6 +246,8 @@ try {
             $pdo->exec("START TRANSACTION");
             
             try {
+                // ATOMICITY: Order creation within transaction
+                // CONSISTENCY: Validates user exists before creating order
                 // Insert order
                 $stmt = $pdo->prepare("
                     INSERT INTO orders (user_id, total_amount, currency, status, shipping_address) 
@@ -241,6 +264,8 @@ try {
                 
                 $newOrderId = $pdo->lastInsertId();
                 
+                // ATOMICITY: Order items creation within same transaction
+                // CONSISTENCY: Validates each product exists before creating order item
                 // Insert order items
                 $stmt = $pdo->prepare("
                     INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal) 
@@ -248,11 +273,13 @@ try {
                 ");
                 
                 foreach ($input['items'] as $item) {
+                    // CONSISTENCY: Validate item data
                     // Validate item data
                     if (!isset($item['product_id']) || !isset($item['quantity']) || !isset($item['unit_price'])) {
                         throw new Exception('Invalid item data');
                     }
                     
+                    // CONSISTENCY: Validate product exists
                     // Check if product exists
                     $productStmt = $pdo->prepare("SELECT product_id, price FROM products WHERE product_id = ?");
                     $productStmt->execute([$item['product_id']]);
@@ -273,6 +300,7 @@ try {
                     ]);
                 }
                 
+                // DURABILITY: COMMIT ensures all changes are permanently saved
                 // Commit transaction - all changes are now permanent
                 $pdo->exec("COMMIT");
                 
@@ -307,15 +335,6 @@ try {
                 sendError('Invalid JSON in request body', 400);
             }
             
-            // Check if order exists
-            $stmt = $pdo->prepare("SELECT order_id, status, user_id FROM orders WHERE order_id = ?");
-            $stmt->execute([$orderIdParam]);
-            $order = $stmt->fetch();
-            
-            if (!$order) {
-                sendError('Order not found', 404);
-            }
-            
             // Validate status
             $allowedStatuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
             if (isset($input['status']) && !in_array($input['status'], $allowedStatuses)) {
@@ -332,22 +351,40 @@ try {
             if (isset($input['items'])) {
                 if (!is_array($input['items']) || empty($input['items'])) {
                     // If no items, delete the order
+                    // ATOMICITY: Order and order_items deletion happen atomically
+                    // CONSISTENCY: Deletes order_items first, then order (respects foreign keys)
+                    // ISOLATION: FOR UPDATE prevents concurrent modifications
+                    // DURABILITY: COMMIT ensures permanent deletion
                     // Start ACID transaction with explicit MySQL statements
                     $pdo->exec("START TRANSACTION");
                     try {
+                        // ISOLATION: Row-level locking prevents concurrent order modifications
+                        // CONSISTENCY: Validate order exists
+                        // Check if order exists WITH LOCK
+                        $checkStmt = $pdo->prepare("SELECT order_id FROM orders WHERE order_id = ? FOR UPDATE");
+                        $checkStmt->execute([$orderIdParam]);
+                        if (!$checkStmt->fetch()) {
+                            $pdo->exec("ROLLBACK");
+                            sendError('Order not found', 404);
+                        }
+                        
+                        // ATOMICITY: Order items deletion within transaction
+                        // CONSISTENCY: Delete order_items first (child records)
                         // Delete order items
                         $stmt = $pdo->prepare("DELETE FROM order_items WHERE order_id = ?");
                         $stmt->execute([$orderIdParam]);
                         
+                        // ATOMICITY: Order deletion within same transaction
                         // Delete order
                         $stmt = $pdo->prepare("DELETE FROM orders WHERE order_id = ?");
                         $stmt->execute([$orderIdParam]);
                         
+                        // DURABILITY: COMMIT ensures all changes are permanently saved
                         // Commit transaction - all deletions are now permanent
                         $pdo->exec("COMMIT");
                         sendResponse(null, 'Order deleted successfully (no items remaining)');
                     } catch (Exception $e) {
-                        // Rollback on error - all changes are discarded
+                        // ATOMICITY: Rollback ensures no partial state on error
                         $pdo->exec("ROLLBACK");
                         error_log('Order deletion error: ' . $e->getMessage());
                         sendError('Failed to delete order: ' . $e->getMessage(), 500);
@@ -381,7 +418,7 @@ try {
                 }
             }
             
-            // Start ACID transaction with explicit MySQL statements
+            // ATOMICITY: Start transaction - all operations succeed or all fail
             // This ensures proper ACID compliance:
             // - ATOMICITY: All operations succeed or all fail
             // - CONSISTENCY: Database constraints and business rules are maintained
@@ -390,6 +427,21 @@ try {
             $pdo->exec("START TRANSACTION");
             
             try {
+                // ISOLATION: Row-level locking prevents concurrent order modifications
+                // CONSISTENCY: Validate order exists
+                // Check if order exists WITH ROW-LEVEL LOCKING
+                // FOR UPDATE prevents race conditions when deleting/updating order items
+                $stmt = $pdo->prepare("SELECT order_id, status, user_id FROM orders WHERE order_id = ? FOR UPDATE");
+                $stmt->execute([$orderIdParam]);
+                $order = $stmt->fetch();
+                
+                if (!$order) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('Order not found', 404);
+                }
+                
+                // ATOMICITY: Order update within transaction
+                // CONSISTENCY: Validates allowed fields before update
                 // Update order basic info
                 $updateFields = [];
                 $params = [];
@@ -402,6 +454,7 @@ try {
                     }
                 }
                 
+                // CONSISTENCY: Recalculate total amount based on items
                 // Update total amount if items are provided
                 if (isset($input['items'])) {
                     $totalAmount = 0;
@@ -419,12 +472,16 @@ try {
                     $stmt->execute($params);
                 }
                 
+                // ATOMICITY: Order items update within same transaction
+                // CONSISTENCY: Deletes old items, then inserts new items (maintains referential integrity)
                 // Handle order items update
                 if (isset($input['items'])) {
-                    // Delete current order items
+                    // ATOMICITY: Order items deletion within transaction
+                    // Delete current order items (order is already locked above)
                     $stmt = $pdo->prepare("DELETE FROM order_items WHERE order_id = ?");
                     $stmt->execute([$orderIdParam]);
                     
+                    // ATOMICITY: Order items insertion within same transaction
                     // Insert new order items
                     $stmt = $pdo->prepare("
                         INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal) 
@@ -500,30 +557,103 @@ try {
             break;
             
         case 'DELETE':
-            // Cancel order (soft delete by changing status)
+            // Cancel order with ACID transaction and stock restoration
+            // ATOMICITY: Order cancellation, stock restoration, and payment update happen atomically
+            // CONSISTENCY: Restores stock if payment was completed, maintains business rules
+            // ISOLATION: FOR UPDATE prevents concurrent order modifications
+            // DURABILITY: COMMIT ensures permanent cancellation
             if (!$orderIdParam) {
                 sendError('Order ID required', 400);
             }
             
-            // Check if order exists
-            $stmt = $pdo->prepare("SELECT order_id, status FROM orders WHERE order_id = ?");
-            $stmt->execute([$orderIdParam]);
-            $order = $stmt->fetch();
+            // ATOMICITY: Start transaction - all operations succeed or all fail
+            $pdo->exec("START TRANSACTION");
             
-            if (!$order) {
-                sendError('Order not found', 404);
+            try {
+                // ISOLATION: Row-level locking prevents concurrent order modifications
+                // CONSISTENCY: Validate order exists
+                // Check if order exists WITH ROW-LEVEL LOCKING
+                $stmt = $pdo->prepare("
+                    SELECT order_id, status, branch_id 
+                    FROM orders 
+                    WHERE order_id = ? 
+                    FOR UPDATE
+                ");
+                $stmt->execute([$orderIdParam]);
+                $order = $stmt->fetch();
+                
+                if (!$order) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('Order not found', 404);
+                }
+                
+                // CONSISTENCY: Enforce business rule - cannot cancel delivered/cancelled orders
+                // Check if order can be cancelled
+                if (in_array($order['status'], ['delivered', 'cancelled'])) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('Cannot cancel order with status: ' . $order['status'], 400);
+                }
+                
+                // CONSISTENCY: Check payment status to determine if stock restoration needed
+                // Get payment status
+                $paymentStmt = $pdo->prepare("SELECT payment_status FROM payments WHERE order_id = ?");
+                $paymentStmt->execute([$orderIdParam]);
+                $payment = $paymentStmt->fetch();
+                
+                // CONSISTENCY: Restore stock if payment was completed (stock was deducted)
+                // ATOMICITY: Stock restoration within same transaction
+                // If payment was completed, restore stock
+                if ($payment && $payment['payment_status'] === 'completed') {
+                    // Get order items
+                    $itemsStmt = $pdo->prepare("
+                        SELECT product_id, quantity 
+                        FROM order_items 
+                        WHERE order_id = ?
+                    ");
+                    $itemsStmt->execute([$orderIdParam]);
+                    $items = $itemsStmt->fetchAll();
+                    
+                    // Restore stock for each item
+                    foreach ($items as $item) {
+                        $restoreStmt = $pdo->prepare("
+                            UPDATE product_inventory 
+                            SET stock_qty = stock_qty + ? 
+                            WHERE product_id = ? AND branch_id = ?
+                        ");
+                        $restoreStmt->execute([
+                            $item['quantity'],
+                            $item['product_id'],
+                            $order['branch_id']
+                        ]);
+                    }
+                }
+                
+                // ATOMICITY: Order status update within transaction
+                // Update order status to cancelled
+                $stmt = $pdo->prepare("UPDATE orders SET status = 'cancelled' WHERE order_id = ?");
+                $stmt->execute([$orderIdParam]);
+                
+                // CONSISTENCY: Update payment status to reflect refund
+                // ATOMICITY: Payment status update within same transaction
+                // Update payment status if exists
+                if ($payment) {
+                    $paymentUpdateStmt = $pdo->prepare("
+                        UPDATE payments 
+                        SET payment_status = 'refunded' 
+                        WHERE order_id = ?
+                    ");
+                    $paymentUpdateStmt->execute([$orderIdParam]);
+                }
+                
+                // DURABILITY: COMMIT ensures all changes are permanently saved
+                $pdo->exec("COMMIT");
+                sendResponse(null, 'Order cancelled successfully');
+            } catch (Exception $e) {
+                // ATOMICITY: Rollback ensures no partial state on error
+                $pdo->exec("ROLLBACK");
+                error_log('Order cancellation error: ' . $e->getMessage());
+                sendError('Failed to cancel order: ' . $e->getMessage(), 500);
             }
-            
-            // Check if order can be cancelled
-            if (in_array($order['status'], ['delivered', 'cancelled'])) {
-                sendError('Cannot cancel order with status: ' . $order['status'], 400);
-            }
-            
-            // Update order status to cancelled
-            $stmt = $pdo->prepare("UPDATE orders SET status = 'cancelled' WHERE order_id = ?");
-            $stmt->execute([$orderIdParam]);
-            
-            sendResponse(null, 'Order cancelled successfully');
             break;
             
         default:

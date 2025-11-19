@@ -20,6 +20,40 @@
  * - Requires valid JWT token
  * - Validates admin role
  * - Returns 403 if not admin
+ * 
+ * ACID COMPLIANCE ANALYSIS:
+ * 
+ * OPERATIONS BY METHOD:
+ * 
+ * POST (Create Product):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates category/genre exist, enforces business rules
+ *   ISOLATION: GOOD - Uses FOR UPDATE on validation checks
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * PUT (Update Product):
+ *   ATOMICITY: GOOD - Uses transaction wrapper
+ *   CONSISTENCY: GOOD - Validates constraints before update
+ *   ISOLATION: GOOD - Uses FOR UPDATE on validation checks
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * DELETE (Delete Product):
+ *   ATOMICITY: GOOD - Uses transaction, deletes all related records atomically
+ *   CONSISTENCY: GOOD - Deletes in correct order respecting foreign keys
+ *   ISOLATION: GOOD - Transaction isolates changes until COMMIT
+ *   DURABILITY: GOOD - COMMIT ensures permanent deletion
+ * 
+ * POST /inventory (Add/Update Inventory):
+ *   ATOMICITY: GOOD - Uses transaction with row-level locking
+ *   CONSISTENCY: GOOD - Validates branch/product exist
+ *   ISOLATION: GOOD - FOR UPDATE prevents concurrent modifications
+ *   DURABILITY: GOOD - COMMIT ensures persistence
+ * 
+ * DELETE /inventory (Remove Inventory):
+ *   ATOMICITY: GOOD - Uses transaction with row-level locking
+ *   CONSISTENCY: GOOD - Validates inventory exists before deletion
+ *   ISOLATION: GOOD - FOR UPDATE prevents race conditions
+ *   DURABILITY: GOOD - COMMIT ensures persistence
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
@@ -133,39 +167,73 @@ try {
                     sendError('Branch not found', 404);
                 }
                 
-                // Check if inventory entry exists
-                $checkInv = $pdo->prepare("SELECT stock_qty FROM product_inventory WHERE product_id = ? AND branch_id = ?");
-                $checkInv->execute([$productIdParam, $branchId]);
-                $existing = $checkInv->fetch();
+                // ATOMICITY: Start transaction - all operations succeed or all fail
+                // Start transaction for atomicity and isolation
+                $pdo->exec("START TRANSACTION");
                 
-                if ($existing) {
-                    // Update existing inventory
-                    $stmt = $pdo->prepare("UPDATE product_inventory SET stock_qty = ? WHERE product_id = ? AND branch_id = ?");
-                    $stmt->execute([$stockQty, $productIdParam, $branchId]);
-                } else {
-                    // Insert new inventory entry
-                    $stmt = $pdo->prepare("INSERT INTO product_inventory (product_id, branch_id, stock_qty) VALUES (?, ?, ?)");
-                    $stmt->execute([$productIdParam, $branchId, $stockQty]);
+                try {
+                    // ISOLATION: Row-level locking prevents concurrent inventory modifications
+                    // Check if inventory entry exists WITH ROW-LEVEL LOCKING
+                    // FOR UPDATE prevents concurrent modifications
+                    $checkInv = $pdo->prepare("
+                        SELECT stock_qty 
+                        FROM product_inventory 
+                        WHERE product_id = ? AND branch_id = ? 
+                        FOR UPDATE
+                    ");
+                    $checkInv->execute([$productIdParam, $branchId]);
+                    $existing = $checkInv->fetch();
+                    
+                    // ATOMICITY: Inventory update/insert within transaction
+                    if ($existing) {
+                        // Update existing inventory
+                        $stmt = $pdo->prepare("
+                            UPDATE product_inventory 
+                            SET stock_qty = ? 
+                            WHERE product_id = ? AND branch_id = ?
+                        ");
+                        $stmt->execute([$stockQty, $productIdParam, $branchId]);
+                    } else {
+                        // Insert new inventory entry
+                        $stmt = $pdo->prepare("
+                            INSERT INTO product_inventory (product_id, branch_id, stock_qty) 
+                            VALUES (?, ?, ?)
+                        ");
+                        $stmt->execute([$productIdParam, $branchId, $stockQty]);
+                    }
+                    
+                    // DURABILITY: COMMIT ensures all changes are permanently saved
+                    // Commit transaction
+                    $pdo->exec("COMMIT");
+                    
+                    // Get updated inventory entry
+                    $stmt = $pdo->prepare("
+                        SELECT 
+                            pi.branch_id,
+                            b.branch_name,
+                            pi.stock_qty
+                        FROM product_inventory pi
+                        LEFT JOIN branches b ON pi.branch_id = b.branch_id
+                        WHERE pi.product_id = ? AND pi.branch_id = ?
+                    ");
+                    $stmt->execute([$productIdParam, $branchId]);
+                    $inventoryEntry = $stmt->fetch(PDO::FETCH_ASSOC);
+                    
+                    sendResponse($inventoryEntry, $existing ? 'Inventory updated successfully' : 'Inventory added successfully');
+                } catch (Exception $e) {
+                    // Rollback on any error
+                    $pdo->exec("ROLLBACK");
+                    error_log('Inventory update error: ' . $e->getMessage());
+                    sendError('Failed to update inventory: ' . $e->getMessage(), 500);
                 }
-                
-                // Get updated inventory entry
-                $stmt = $pdo->prepare("
-                    SELECT 
-                        pi.branch_id,
-                        b.branch_name,
-                        pi.stock_qty
-                    FROM product_inventory pi
-                    LEFT JOIN branches b ON pi.branch_id = b.branch_id
-                    WHERE pi.product_id = ? AND pi.branch_id = ?
-                ");
-                $stmt->execute([$productIdParam, $branchId]);
-                $inventoryEntry = $stmt->fetch(PDO::FETCH_ASSOC);
-                
-                sendResponse($inventoryEntry, $existing ? 'Inventory updated successfully' : 'Inventory added successfully');
                 break;
                 
             case 'DELETE':
-                // Remove inventory from a branch
+                // Remove inventory from a branch with ACID transaction
+                // ATOMICITY: Inventory check and deletion happen atomically
+                // CONSISTENCY: Validates inventory exists before deletion
+                // ISOLATION: FOR UPDATE prevents concurrent modifications
+                // DURABILITY: COMMIT ensures permanent deletion
                 $input = json_decode(file_get_contents('php://input'), true);
                 
                 if (!isset($input['branch_id']) || !is_numeric($input['branch_id'])) {
@@ -174,18 +242,41 @@ try {
                 
                 $branchId = (int)$input['branch_id'];
                 
-                // Check if inventory entry exists
-                $checkInv = $pdo->prepare("SELECT stock_qty FROM product_inventory WHERE product_id = ? AND branch_id = ?");
-                $checkInv->execute([$productIdParam, $branchId]);
-                if (!$checkInv->fetch()) {
-                    sendError('Inventory entry not found', 404);
+                // ATOMICITY: Start transaction - all operations succeed or all fail
+                $pdo->exec("START TRANSACTION");
+                
+                try {
+                    // ISOLATION: Row-level locking prevents concurrent inventory modifications
+                    // CONSISTENCY: Validate inventory exists
+                    // Check if inventory entry exists WITH ROW-LEVEL LOCKING
+                    $checkInv = $pdo->prepare("
+                        SELECT stock_qty 
+                        FROM product_inventory 
+                        WHERE product_id = ? AND branch_id = ? 
+                        FOR UPDATE
+                    ");
+                    $checkInv->execute([$productIdParam, $branchId]);
+                    $existing = $checkInv->fetch();
+                    
+                    if (!$existing) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Inventory entry not found', 404);
+                    }
+                    
+                    // ATOMICITY: Inventory deletion within transaction
+                    // Delete inventory entry
+                    $stmt = $pdo->prepare("DELETE FROM product_inventory WHERE product_id = ? AND branch_id = ?");
+                    $stmt->execute([$productIdParam, $branchId]);
+                    
+                    // DURABILITY: COMMIT ensures all changes are permanently saved
+                    $pdo->exec("COMMIT");
+                    sendResponse(null, 'Inventory removed successfully');
+                } catch (Exception $e) {
+                    // ATOMICITY: Rollback ensures no partial state on error
+                    $pdo->exec("ROLLBACK");
+                    error_log('Inventory deletion error: ' . $e->getMessage());
+                    sendError('Failed to remove inventory: ' . $e->getMessage(), 500);
                 }
-                
-                // Delete inventory entry
-                $stmt = $pdo->prepare("DELETE FROM product_inventory WHERE product_id = ? AND branch_id = ?");
-                $stmt->execute([$productIdParam, $branchId]);
-                
-                sendResponse(null, 'Inventory removed successfully');
                 break;
                 
             default:
@@ -558,7 +649,7 @@ try {
             break;
             
         case 'POST':
-            // Create new product
+            // Create new product with ACID transaction
             $input = json_decode(file_get_contents('php://input'), true);
             
             $errors = validateRequired($input, ['product_name', 'brand', 'price', 'category_id']);
@@ -591,62 +682,84 @@ try {
                 $priceInPhp = floatval($input['price']) / $rate;
             }
             
-            // Check if category exists
-            $stmt = $pdo->prepare("SELECT category_id FROM categories WHERE category_id = ?");
-            $stmt->execute([$input['category_id']]);
-            if (!$stmt->fetch()) {
-                sendError('Category not found', 404);
-            }
+            // ATOMICITY: Start transaction - all operations succeed or all fail
+            $pdo->exec("START TRANSACTION");
             
-            // Check if genre exists (if provided)
-            $genreId = isset($input['genre_id']) && $input['genre_id'] !== null && $input['genre_id'] !== '' ? (int)$input['genre_id'] : null;
-            if ($genreId !== null) {
-                $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_id = ?");
-                $stmt->execute([$genreId]);
+            try {
+                // ISOLATION: Row-level locking prevents concurrent category modifications
+                // CONSISTENCY: Validate category exists before INSERT
+                // Check if category exists WITH ROW-LEVEL LOCKING
+                $stmt = $pdo->prepare("SELECT category_id FROM categories WHERE category_id = ? FOR UPDATE");
+                $stmt->execute([$input['category_id']]);
                 if (!$stmt->fetch()) {
-                    sendError('Genre not found', 404);
+                    $pdo->exec("ROLLBACK");
+                    sendError('Category not found', 404);
                 }
-            }
-            
-            // Insert product - price is stored in PHP (base currency)
-            // Brand and model can be empty for games (when genre_id is set)
-            $stmt = $pdo->prepare("
-                INSERT INTO products (category_id, genre_id, product_name, brand, model, description, price, specifications) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            
-            $stmt->execute([
-                $input['category_id'],
-                $genreId,
-                $input['product_name'],
-                $input['brand'] ?? null, // Can be null for games
-                $input['model'] ?? null, // Can be null for games
-                $input['description'] ?? null,
-                $priceInPhp, // Store price in PHP
-                isset($input['specifications']) ? json_encode($input['specifications']) : null
-            ]);
-            
-            $newProductId = $pdo->lastInsertId();
-            
-            // Handle inventory if stock_quantity is provided
-            // Skip inventory if branch_id is 0 (no branch) - new products are created without branch assignment
-            // Admins will add products to branches later using the inventory management endpoint
-            $branchId = isset($input['branch_id']) ? (int)$input['branch_id'] : 0;
-            if ($branchId !== 0 && isset($input['stock_quantity']) && is_numeric($input['stock_quantity']) && $input['stock_quantity'] >= 0) {
-                // Check if inventory entry exists for the selected branch
-                $checkStmt = $pdo->prepare("SELECT stock_qty FROM product_inventory WHERE product_id = ? AND branch_id = ?");
-                $checkStmt->execute([$newProductId, $branchId]);
-                $existing = $checkStmt->fetch();
                 
-                if ($existing) {
-                    // Update existing inventory
-                    $invStmt = $pdo->prepare("UPDATE product_inventory SET stock_qty = ? WHERE product_id = ? AND branch_id = ?");
-                    $invStmt->execute([intval($input['stock_quantity']), $newProductId, $branchId]);
-                } else {
-                    // Insert new inventory entry for the selected branch
-                    $invStmt = $pdo->prepare("INSERT INTO product_inventory (product_id, branch_id, stock_qty) VALUES (?, ?, ?)");
-                    $invStmt->execute([$newProductId, $branchId, intval($input['stock_quantity'])]);
+                // ISOLATION: Row-level locking prevents concurrent genre modifications
+                // CONSISTENCY: Validate genre exists before INSERT (if provided)
+                // Check if genre exists (if provided) WITH ROW-LEVEL LOCKING
+                $genreId = isset($input['genre_id']) && $input['genre_id'] !== null && $input['genre_id'] !== '' ? (int)$input['genre_id'] : null;
+                if ($genreId !== null) {
+                    $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_id = ? FOR UPDATE");
+                    $stmt->execute([$genreId]);
+                    if (!$stmt->fetch()) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Genre not found', 404);
+                    }
                 }
+                
+                // ATOMICITY: Product INSERT within transaction
+                // Insert product - price is stored in PHP (base currency)
+                // Brand and model can be empty for games (when genre_id is set)
+                $stmt = $pdo->prepare("
+                    INSERT INTO products (category_id, genre_id, product_name, brand, model, description, price, specifications) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                
+                $stmt->execute([
+                    $input['category_id'],
+                    $genreId,
+                    $input['product_name'],
+                    $input['brand'] ?? null, // Can be null for games
+                    $input['model'] ?? null, // Can be null for games
+                    $input['description'] ?? null,
+                    $priceInPhp, // Store price in PHP
+                    isset($input['specifications']) ? json_encode($input['specifications']) : null
+                ]);
+                
+                $newProductId = $pdo->lastInsertId();
+                
+                // ATOMICITY: Inventory INSERT/UPDATE within same transaction
+                // ISOLATION: Row-level locking prevents concurrent inventory modifications
+                // Handle inventory if stock_quantity is provided
+                // Skip inventory if branch_id is 0 (no branch) - new products are created without branch assignment
+                // Admins will add products to branches later using the inventory management endpoint
+                $branchId = isset($input['branch_id']) ? (int)$input['branch_id'] : 0;
+                if ($branchId !== 0 && isset($input['stock_quantity']) && is_numeric($input['stock_quantity']) && $input['stock_quantity'] >= 0) {
+                    // Check if inventory entry exists for the selected branch WITH ROW-LEVEL LOCKING
+                    $checkStmt = $pdo->prepare("SELECT stock_qty FROM product_inventory WHERE product_id = ? AND branch_id = ? FOR UPDATE");
+                    $checkStmt->execute([$newProductId, $branchId]);
+                    $existing = $checkStmt->fetch();
+                    
+                    if ($existing) {
+                        // Update existing inventory
+                        $invStmt = $pdo->prepare("UPDATE product_inventory SET stock_qty = ? WHERE product_id = ? AND branch_id = ?");
+                        $invStmt->execute([intval($input['stock_quantity']), $newProductId, $branchId]);
+                    } else {
+                        // Insert new inventory entry for the selected branch
+                        $invStmt = $pdo->prepare("INSERT INTO product_inventory (product_id, branch_id, stock_qty) VALUES (?, ?, ?)");
+                        $invStmt->execute([$newProductId, $branchId, intval($input['stock_quantity'])]);
+                    }
+                }
+                
+                // DURABILITY: COMMIT ensures all changes are permanently saved
+                $pdo->exec("COMMIT");
+            } catch (Exception $e) {
+                // ATOMICITY: Rollback ensures no partial state on error
+                $pdo->exec("ROLLBACK");
+                error_log('Product creation error: ' . $e->getMessage());
+                sendError('Failed to create product: ' . $e->getMessage(), 500);
             }
             
             // Get created product with category name and stock from selected branch (if branch_id is not 0)
@@ -706,19 +819,12 @@ try {
             break;
             
         case 'PUT':
-            // Update product
+            // Update product with ACID transaction
             if (!$productIdParam) {
                 sendError('Product ID required', 400);
             }
             
             $input = json_decode(file_get_contents('php://input'), true);
-            
-            // Check if product exists
-            $stmt = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ?");
-            $stmt->execute([$productIdParam]);
-            if (!$stmt->fetch()) {
-                sendError('Product not found', 404);
-            }
             
             // Validate price if provided
             if (isset($input['price']) && (!is_numeric($input['price']) || $input['price'] < 0)) {
@@ -747,102 +853,135 @@ try {
                 }
             }
             
-            // Check if category exists if provided
-            if (isset($input['category_id'])) {
-                $stmt = $pdo->prepare("SELECT category_id FROM categories WHERE category_id = ?");
-                $stmt->execute([$input['category_id']]);
+            // ATOMICITY: Start transaction - all operations succeed or all fail
+            $pdo->exec("START TRANSACTION");
+            
+            try {
+                // ISOLATION: Row-level locking prevents concurrent product modifications
+                // CONSISTENCY: Validate product exists before UPDATE
+                // Check if product exists WITH ROW-LEVEL LOCKING
+                $stmt = $pdo->prepare("SELECT product_id FROM products WHERE product_id = ? FOR UPDATE");
+                $stmt->execute([$productIdParam]);
                 if (!$stmt->fetch()) {
-                    sendError('Category not found', 404);
+                    $pdo->exec("ROLLBACK");
+                    sendError('Product not found', 404);
                 }
-            }
-            
-            // Check if genre exists (if provided)
-            if (isset($input['genre_id']) && $input['genre_id'] !== null && $input['genre_id'] !== '') {
-                $genreId = (int)$input['genre_id'];
-                $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_id = ?");
-                $stmt->execute([$genreId]);
-                if (!$stmt->fetch()) {
-                    sendError('Genre not found', 404);
-                }
-            }
-            
-            // Build update query (exclude stock_quantity and currency - price is stored in PHP)
-            $updateFields = [];
-            $params = [];
-            
-            $allowedFields = ['category_id', 'genre_id', 'product_name', 'brand', 'model', 'description'];
-            foreach ($allowedFields as $field) {
-                if (isset($input[$field])) {
-                    // Handle genre_id: can be null to clear it
-                    if ($field === 'genre_id') {
-                        $updateFields[] = "$field = ?";
-                        $params[] = ($input[$field] === null || $input[$field] === '') ? null : (int)$input[$field];
-                    } else {
-                        $updateFields[] = "$field = ?";
-                        $params[] = $input[$field];
+                
+                // ISOLATION: Row-level locking prevents concurrent category modifications
+                // CONSISTENCY: Validate category exists if provided
+                // Check if category exists if provided WITH ROW-LEVEL LOCKING
+                if (isset($input['category_id'])) {
+                    $stmt = $pdo->prepare("SELECT category_id FROM categories WHERE category_id = ? FOR UPDATE");
+                    $stmt->execute([$input['category_id']]);
+                    if (!$stmt->fetch()) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Category not found', 404);
                     }
                 }
-            }
-            
-            // Add price (converted to PHP) if provided
-            if ($priceInPhp !== null) {
-                $updateFields[] = "price = ?";
-                $params[] = $priceInPhp;
-            }
-            
-            // Handle specifications update
-            if (isset($input['specifications'])) {
-                $updateFields[] = "specifications = ?";
-                $params[] = json_encode($input['specifications']);
-            }
-            
-            if (empty($updateFields)) {
-                sendError('No fields to update', 400);
-            }
-            
-            $params[] = $productIdParam;
-            
-            $sql = "UPDATE products SET " . implode(', ', $updateFields) . " WHERE product_id = ?";
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute($params);
-            
-            // Handle inventory update if stock_quantity is provided
-            // Use branch_id from input (which should come from the product's existing inventory)
-            // Skip inventory update if branch_id is 0 (no branch)
-            $branchId = isset($input['branch_id']) ? (int)$input['branch_id'] : null;
-            
-            if ($branchId !== 0 && isset($input['stock_quantity']) && is_numeric($input['stock_quantity'])) {
-                // If branch_id is provided, use it; otherwise get the first branch for this product
-                if (!$branchId) {
-                    $firstBranchStmt = $pdo->prepare("SELECT branch_id FROM product_inventory WHERE product_id = ? ORDER BY branch_id LIMIT 1");
-                    $firstBranchStmt->execute([$productIdParam]);
-                    $firstBranch = $firstBranchStmt->fetch();
-                    $branchId = $firstBranch ? (int)$firstBranch['branch_id'] : 1;
+                
+                // ISOLATION: Row-level locking prevents concurrent genre modifications
+                // CONSISTENCY: Validate genre exists (if provided)
+                // Check if genre exists (if provided) WITH ROW-LEVEL LOCKING
+                if (isset($input['genre_id']) && $input['genre_id'] !== null && $input['genre_id'] !== '') {
+                    $genreId = (int)$input['genre_id'];
+                    $stmt = $pdo->prepare("SELECT genre_id FROM genres WHERE genre_id = ? FOR UPDATE");
+                    $stmt->execute([$genreId]);
+                    if (!$stmt->fetch()) {
+                        $pdo->exec("ROLLBACK");
+                        sendError('Genre not found', 404);
+                    }
                 }
                 
-                // Check if inventory entry exists for this branch
-                $checkStmt = $pdo->prepare("SELECT stock_qty FROM product_inventory WHERE product_id = ? AND branch_id = ?");
-                $checkStmt->execute([$productIdParam, $branchId]);
-                $existing = $checkStmt->fetch();
+                // ATOMICITY: Product UPDATE within transaction
+                // Build update query (exclude stock_quantity and currency - price is stored in PHP)
+                $updateFields = [];
+                $params = [];
                 
-                if ($existing) {
-                    // Update existing inventory
-                    $invStmt = $pdo->prepare("UPDATE product_inventory SET stock_qty = ? WHERE product_id = ? AND branch_id = ?");
-                    $invStmt->execute([intval($input['stock_quantity']), $productIdParam, $branchId]);
+                $allowedFields = ['category_id', 'genre_id', 'product_name', 'brand', 'model', 'description'];
+                foreach ($allowedFields as $field) {
+                    if (isset($input[$field])) {
+                        // Handle genre_id: can be null to clear it
+                        if ($field === 'genre_id') {
+                            $updateFields[] = "$field = ?";
+                            $params[] = ($input[$field] === null || $input[$field] === '') ? null : (int)$input[$field];
+                        } else {
+                            $updateFields[] = "$field = ?";
+                            $params[] = $input[$field];
+                        }
+                    }
+                }
+                
+                // Add price (converted to PHP) if provided
+                if ($priceInPhp !== null) {
+                    $updateFields[] = "price = ?";
+                    $params[] = $priceInPhp;
+                }
+                
+                // Handle specifications update
+                if (isset($input['specifications'])) {
+                    $updateFields[] = "specifications = ?";
+                    $params[] = json_encode($input['specifications']);
+                }
+                
+                if (empty($updateFields)) {
+                    $pdo->exec("ROLLBACK");
+                    sendError('No fields to update', 400);
+                }
+                
+                $params[] = $productIdParam;
+                
+                $sql = "UPDATE products SET " . implode(', ', $updateFields) . " WHERE product_id = ?";
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute($params);
+                
+                // ATOMICITY: Inventory UPDATE/INSERT within same transaction
+                // ISOLATION: Row-level locking prevents concurrent inventory modifications
+                // Handle inventory update if stock_quantity is provided
+                // Use branch_id from input (which should come from the product's existing inventory)
+                // Skip inventory update if branch_id is 0 (no branch)
+                $branchId = isset($input['branch_id']) ? (int)$input['branch_id'] : null;
+                
+                if ($branchId !== 0 && isset($input['stock_quantity']) && is_numeric($input['stock_quantity'])) {
+                    // If branch_id is provided, use it; otherwise get the first branch for this product
+                    if (!$branchId) {
+                        $firstBranchStmt = $pdo->prepare("SELECT branch_id FROM product_inventory WHERE product_id = ? ORDER BY branch_id LIMIT 1");
+                        $firstBranchStmt->execute([$productIdParam]);
+                        $firstBranch = $firstBranchStmt->fetch();
+                        $branchId = $firstBranch ? (int)$firstBranch['branch_id'] : 1;
+                    }
+                    
+                    // Check if inventory entry exists for this branch WITH ROW-LEVEL LOCKING
+                    $checkStmt = $pdo->prepare("SELECT stock_qty FROM product_inventory WHERE product_id = ? AND branch_id = ? FOR UPDATE");
+                    $checkStmt->execute([$productIdParam, $branchId]);
+                    $existing = $checkStmt->fetch();
+                    
+                    if ($existing) {
+                        // Update existing inventory
+                        $invStmt = $pdo->prepare("UPDATE product_inventory SET stock_qty = ? WHERE product_id = ? AND branch_id = ?");
+                        $invStmt->execute([intval($input['stock_quantity']), $productIdParam, $branchId]);
+                    } else {
+                        // Insert new inventory entry for this branch
+                        $invStmt = $pdo->prepare("INSERT INTO product_inventory (product_id, branch_id, stock_qty) VALUES (?, ?, ?)");
+                        $invStmt->execute([$productIdParam, $branchId, intval($input['stock_quantity'])]);
+                    }
                 } else {
-                    // Insert new inventory entry for this branch
-                    $invStmt = $pdo->prepare("INSERT INTO product_inventory (product_id, branch_id, stock_qty) VALUES (?, ?, ?)");
-                    $invStmt->execute([$productIdParam, $branchId, intval($input['stock_quantity'])]);
+                    // If no stock_quantity provided but branch_id is, get it from existing inventory
+                    // Skip if branch_id is 0 (no branch)
+                    if (!$branchId && $branchId !== 0) {
+                        $firstBranchStmt = $pdo->prepare("SELECT branch_id FROM product_inventory WHERE product_id = ? ORDER BY branch_id LIMIT 1");
+                        $firstBranchStmt->execute([$productIdParam]);
+                        $firstBranch = $firstBranchStmt->fetch();
+                        $branchId = $firstBranch ? (int)$firstBranch['branch_id'] : 1;
+                    }
                 }
-            } else {
-                // If no stock_quantity provided but branch_id is, get it from existing inventory
-                // Skip if branch_id is 0 (no branch)
-                if (!$branchId && $branchId !== 0) {
-                    $firstBranchStmt = $pdo->prepare("SELECT branch_id FROM product_inventory WHERE product_id = ? ORDER BY branch_id LIMIT 1");
-                    $firstBranchStmt->execute([$productIdParam]);
-                    $firstBranch = $firstBranchStmt->fetch();
-                    $branchId = $firstBranch ? (int)$firstBranch['branch_id'] : 1;
-                }
+                
+                // DURABILITY: COMMIT ensures all changes are permanently saved
+                $pdo->exec("COMMIT");
+            } catch (Exception $e) {
+                // ATOMICITY: Rollback ensures no partial state on error
+                $pdo->exec("ROLLBACK");
+                error_log('Product update error: ' . $e->getMessage());
+                sendError('Failed to update product: ' . $e->getMessage(), 500);
             }
             
             // Get updated product with category name and stock from the branch used

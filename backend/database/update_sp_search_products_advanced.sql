@@ -1,6 +1,6 @@
 -- Update stored procedure to properly filter by branch_id
 -- When branch_id is provided (logged-in user): Start from product_inventory filtered by branch_id
--- When branch_id is NULL (non-logged-in user): Start from products and show all products
+-- When branch_id is NULL (non-logged-in user): Show only products without branch assignment (not in product_inventory)
 
 DROP PROCEDURE IF EXISTS `sp_search_products_advanced`;
 
@@ -67,13 +67,15 @@ BEGIN
             pi.stock_qty > 0
           );
     ELSE
-        -- User not logged in - Start from products and show all products
+        -- User not logged in - Show only products without branch assignment (not in product_inventory)
         SELECT COUNT(DISTINCT p.product_id) AS total
         FROM products p
         LEFT JOIN categories c ON p.category_id = c.category_id
         WHERE
+          -- Only show products that are NOT in product_inventory (no branch assignment)
+          NOT EXISTS (SELECT 1 FROM product_inventory pi WHERE pi.product_id = p.product_id)
           -- keyword search
-          (
+          AND (
             p_q IS NULL OR p_q = '' OR
             p.product_name LIKE CONCAT('%', p_q, '%') OR
             p.brand        LIKE CONCAT('%', p_q, '%') OR
@@ -88,11 +90,8 @@ BEGIN
           -- price range (in PHP base)
           AND (p_price_min IS NULL OR p.price >= p_price_min)
           AND (p_price_max IS NULL OR p.price <= p_price_max)
-          -- in-stock filter (check total stock across all branches)
-          AND (
-            p_in_stock IS NULL OR p_in_stock = 0 OR
-            (SELECT COALESCE(SUM(pi_all.stock_qty), 0) FROM product_inventory pi_all WHERE pi_all.product_id = p.product_id) > 0
-          );
+          -- in-stock filter (for products without branch assignment, stock is always 0)
+          AND (p_in_stock IS NULL OR p_in_stock = 0);
     END IF;
 
     -- 2) ACTUAL ROWS (products)
@@ -165,7 +164,7 @@ BEGIN
           p.product_id DESC
         LIMIT p_limit OFFSET p_offset;
     ELSE
-        -- User not logged in - Start from products and show all products
+        -- User not logged in - Show only products without branch assignment (not in product_inventory)
         SELECT
           p.product_id,
           p.product_name,
@@ -179,7 +178,7 @@ BEGIN
           END                                      AS display_price,
           v_currency                               AS currency,
           c.category_name,
-          (SELECT COALESCE(SUM(pi_all.stock_qty), 0) FROM product_inventory pi_all WHERE pi_all.product_id = p.product_id) AS stock_quantity,
+          0                                        AS stock_quantity,  -- Products without branch assignment have 0 stock
           (
             SELECT image_url
             FROM product_images
@@ -192,8 +191,10 @@ BEGIN
         FROM products p
         LEFT JOIN categories c ON p.category_id = c.category_id
         WHERE
+          -- Only show products that are NOT in product_inventory (no branch assignment)
+          NOT EXISTS (SELECT 1 FROM product_inventory pi WHERE pi.product_id = p.product_id)
           -- same filters as in count
-          (
+          AND (
             p_q IS NULL OR p_q = '' OR
             p.product_name LIKE CONCAT('%', p_q, '%') OR
             p.brand        LIKE CONCAT('%', p_q, '%') OR
@@ -205,18 +206,8 @@ BEGIN
           AND (p_month IS NULL OR (p.release_date IS NULL OR MONTH(p.release_date) = p_month))
           AND (p_price_min IS NULL OR p.price >= p_price_min)
           AND (p_price_max IS NULL OR p.price <= p_price_max)
-          AND (
-            p_in_stock IS NULL OR p_in_stock = 0 OR
-            (SELECT COALESCE(SUM(pi_all.stock_qty), 0) FROM product_inventory pi_all WHERE pi_all.product_id = p.product_id) > 0
-          )
-        GROUP BY
-          p.product_id,
-          p.product_name,
-          p.brand,
-          p.model,
-          p.price,
-          c.category_name,
-          p.created_at
+          -- in-stock filter (for products without branch assignment, stock is always 0)
+          AND (p_in_stock IS NULL OR p_in_stock = 0)
         ORDER BY
           -- Sorting order
           CASE 

@@ -1,4 +1,30 @@
 <?php
+/**
+ * USER REGISTRATION ENDPOINT
+ * 
+ * ACID COMPLIANCE ANALYSIS:
+ * 
+ * ATOMICITY: GOOD - Uses transaction wrapper
+ *   - User creation and token generation are atomic
+ *   - If any operation fails, entire transaction is rolled back
+ *   - No partial user creation possible
+ * 
+ * CONSISTENCY: GOOD
+ *   - Validates username/email uniqueness before INSERT (with row-level locking)
+ *   - Validates branch_id exists before INSERT
+ *   - Enforces role='user' and status='inactive' constraints
+ *   - Database constraints (UNIQUE on username/email) prevent duplicates
+ * 
+ * ISOLATION: GOOD - Uses row-level locking
+ *   - FOR UPDATE on uniqueness checks prevents race conditions
+ *   - Prevents concurrent registration with same username/email
+ *   - Transaction isolation level: READ COMMITTED (set in database.php)
+ * 
+ * DURABILITY: GOOD
+ *   - COMMIT ensures all changes are permanently saved
+ *   - ROLLBACK on error ensures no partial state
+ *   - Database ensures durability after successful COMMIT
+ */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 
@@ -33,28 +59,37 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
     sendError('Invalid email format', 400);
 }
 
-// Check if username already exists
-$stmt = $pdo->prepare("SELECT user_id FROM users WHERE username = ?");
-$stmt->execute([$username]);
+// ATOMICITY: Start transaction - all operations succeed or all fail
+$pdo->exec("START TRANSACTION");
 
-if ($stmt->fetch()) {
-    sendError('Username already exists. Please choose a different username.', 409);
-}
-
-// Check if email already exists
-$stmt = $pdo->prepare("SELECT user_id FROM users WHERE email = ?");
-$stmt->execute([$email]);
-
-if ($stmt->fetch()) {
-    sendError('User with this email already exists', 409);
-}
-
-// Hash password
-$hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-
-// Insert new user
-// All new registrations default to 'user' role - admins cannot be created via registration
 try {
+    // ISOLATION: Row-level locking prevents concurrent registration with same username/email
+    // CONSISTENCY: Validate username uniqueness with row-level locking
+    // Check if username already exists WITH ROW-LEVEL LOCKING
+    $stmt = $pdo->prepare("SELECT user_id FROM users WHERE username = ? FOR UPDATE");
+    $stmt->execute([$username]);
+    
+    if ($stmt->fetch()) {
+        $pdo->exec("ROLLBACK");
+        sendError('Username already exists. Please choose a different username.', 409);
+    }
+    
+    // ISOLATION: Row-level locking prevents concurrent registration with same email
+    // CONSISTENCY: Validate email uniqueness with row-level locking
+    // Check if email already exists WITH ROW-LEVEL LOCKING
+    $stmt = $pdo->prepare("SELECT user_id FROM users WHERE email = ? FOR UPDATE");
+    $stmt->execute([$email]);
+    
+    if ($stmt->fetch()) {
+        $pdo->exec("ROLLBACK");
+        sendError('User with this email already exists', 409);
+    }
+    
+    // Hash password
+    $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+    
+    // ATOMICITY: User creation within transaction
+    // All new registrations default to 'user' role - admins cannot be created via registration
     // Force role to 'user' - ignore any role value that might be sent in the request
     $userRole = 'user';
     
@@ -63,6 +98,7 @@ try {
         throw new Exception('Required fields cannot be empty');
     }
     
+    // CONSISTENCY: Validate branch_id exists before INSERT
     // Validate branch_id if provided
     $branchId = null;
     if (isset($input['branch_id']) && !empty($input['branch_id'])) {
@@ -71,10 +107,12 @@ try {
         $branchCheck = $pdo->prepare("SELECT branch_id FROM branches WHERE branch_id = ?");
         $branchCheck->execute([$branchId]);
         if (!$branchCheck->fetch()) {
+            $pdo->exec("ROLLBACK");
             sendError('Invalid branch selected', 400);
         }
     }
     
+    // ATOMICITY: User INSERT within transaction
     // Insert user - set initial status to 'inactive' (will be set to 'active' on first login)
     $stmt = $pdo->prepare("
         INSERT INTO users (username, email, password_hash, first_name, last_name, phone, address, role, status, branch_id) 
@@ -109,6 +147,7 @@ try {
         throw new Exception('Failed to get inserted user ID');
     }
     
+    // ATOMICITY: Token generation within same transaction
     // Generate token
     $token = generateToken($userId);
     
@@ -131,12 +170,20 @@ try {
     $newUser['role'] = 'user';
     $newUser['status'] = 'inactive'; // New users start as inactive until first login
     
+    // DURABILITY: COMMIT ensures all changes are permanently saved
+    $pdo->exec("COMMIT");
+    
     sendResponse([
         'user' => $newUser,
         'token' => $token
     ], 'User registered successfully', 201);
     
 } catch (PDOException $e) {
+    // ATOMICITY: Rollback ensures no partial state on error
+    if ($pdo->inTransaction()) {
+        $pdo->exec("ROLLBACK");
+    }
+    
     // Log detailed error information
     error_log('Registration PDO Error: ' . $e->getMessage());
     error_log('PDO Error Code: ' . $e->getCode());
@@ -151,6 +198,11 @@ try {
     }
     sendError($errorMessage, 500);
 } catch (Exception $e) {
+    // ATOMICITY: Rollback ensures no partial state on error
+    if ($pdo->inTransaction()) {
+        $pdo->exec("ROLLBACK");
+    }
+    
     error_log('Registration Error: ' . $e->getMessage());
     $errorMessage = 'Registration failed';
     if (getenv('APP_ENV') === 'development' || !getenv('APP_ENV')) {

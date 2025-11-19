@@ -42,32 +42,54 @@ function Home() {
     try {
       setLoading(true)
       // Debug logging
-      console.log('[Home] Fetching products:', { userBranchId, user: user?.branch_id, currency })
+      console.log('[Home] ========== FETCHING FEATURED PRODUCTS ==========')
+      console.log('[Home] User state:', { 
+        isAuthenticated: !!user, 
+        userBranchId, 
+        userBranchIdFromUser: user?.branch_id,
+        currency,
+        authLoading 
+      })
       
-      // Ensure token is valid before making request
-      const { ensureValidToken } = await import('../utils/tokenRefresh')
-      const tokenValid = await ensureValidToken()
-      if (!tokenValid) {
-        return // ensureValidToken already handles redirect
+      // Ensure token is valid before making request (only if token exists)
+      const token = localStorage.getItem('token')
+      if (token) {
+        const { ensureValidToken } = await import('../utils/tokenRefresh')
+        const tokenValid = await ensureValidToken()
+        console.log('[Home] Token validation result:', tokenValid)
+        if (!tokenValid) {
+          console.log('[Home] Token invalid, returning early')
+          return // ensureValidToken already handles redirect
+        }
+      } else {
+        console.log('[Home] No token found - proceeding as non-logged-in user')
       }
       
       const url = api(`/products?limit=6&currency=${encodeURIComponent(currency)}`)
-      const token = localStorage.getItem('token')
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       }
       if (token) {
         headers['Authorization'] = `Bearer ${token}`
+        console.log('[Home] Token found in localStorage, adding to headers')
+      } else {
+        console.log('[Home] No token in localStorage - making request as non-logged-in user')
       }
 
       console.log('[Home] Fetching from URL:', url)
+      console.log('[Home] Request headers:', { ...headers, Authorization: token ? 'Bearer [REDACTED]' : 'none' })
+      
       const res = await fetch(url, { 
         credentials: 'include',
         headers
       })
       
+      console.log('[Home] Response status:', res.status, res.statusText)
+      console.log('[Home] Response headers:', Object.fromEntries(res.headers.entries()))
+      
       // Handle expired token - redirect to login
       if (res.status === 401) {
+        console.log('[Home] Got 401, clearing auth and redirecting')
         localStorage.removeItem('token')
         localStorage.removeItem('user')
         window.dispatchEvent(new Event('authStateChanged'))
@@ -76,9 +98,24 @@ function Home() {
         return
       }
       
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) {
+        const errorText = await res.text()
+        console.error('[Home] Request failed:', { status: res.status, statusText: res.statusText, errorText })
+        throw new Error(errorText)
+      }
+      
       const data = await res.json()
-      setFeaturedProducts(data?.data?.products ?? data?.products ?? [])
+      console.log('[Home] Response data:', {
+        success: data.success,
+        message: data.message,
+        productsCount: data?.data?.products?.length ?? data?.products?.length ?? 0,
+        products: data?.data?.products ?? data?.products ?? []
+      })
+      
+      const products = data?.data?.products ?? data?.products ?? []
+      console.log('[Home] Setting featured products:', products.length, 'products')
+      setFeaturedProducts(products)
+      console.log('[Home] ========== END FETCHING FEATURED PRODUCTS ==========')
     } catch (err) {
       console.error('Error fetching featured products:', err)
       setFeaturedProducts([])
