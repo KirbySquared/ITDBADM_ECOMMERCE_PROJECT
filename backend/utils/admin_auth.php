@@ -5,6 +5,10 @@
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../utils/response.php';
 
+/**
+ * Basic admin authentication (backward compatible)
+ * For permission-based checks, use requireAdminAuthWithPermission() from permissions.php
+ */
 function requireAdminAuth() {
     global $pdo; // Access global $pdo variable from database.php
     

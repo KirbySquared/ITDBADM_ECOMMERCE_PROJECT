@@ -59,41 +59,29 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/audit_helper.php';
 require_once __DIR__ . '/../../utils/stored_procedure_helper.php';
+require_once __DIR__ . '/../../utils/permissions.php';
 
-// Get authorization header
-$headers = getallheaders();
-$token = null;
-
-if (isset($headers['Authorization'])) {
-    $token = str_replace('Bearer ', '', $headers['Authorization']);
-}
-
-if (!$token) {
-    sendError('Authorization token required', 401);
-}
-
-// Validate token
-$userId = validateToken($token);
-if (!$userId) {
-    sendError('Invalid or expired token', 401);
-}
-
-// Check if user is admin
-try {
-    $stmt = $pdo->prepare("SELECT role FROM users WHERE user_id = ?");
-    $stmt->execute([$userId]);
-    $user = $stmt->fetch();
-    
-    if (!$user || $user['role'] !== 'admin') {
-        sendError('Admin access required', 403);
-    }
-} catch (PDOException $e) {
-    sendError('Database error', 500);
-}
-
-// Get request method and path
+// Get HTTP method and route
 $method = $_SERVER['REQUEST_METHOD'];
-$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$path = $_SERVER['PATH_INFO'] ?? '';
+
+// Determine required permission based on method
+$permissionMap = [
+    'GET' => 'products.view',
+    'POST' => 'products.create',
+    'PUT' => 'products.update',
+    'DELETE' => 'products.delete'
+];
+
+$requiredPermission = $permissionMap[$method] ?? 'products.view';
+
+// Enhanced authentication with permission checking
+$userId = requireAdminAuthWithPermission($requiredPermission);
+
+// Get request method and path (if not already set)
+if (!isset($path) || empty($path)) {
+    $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+}
 // Strip /api/admin from path to match router's processing
 $path = str_replace('/api/admin', '', $path);
 $path = ltrim($path, '/'); // Remove leading slash

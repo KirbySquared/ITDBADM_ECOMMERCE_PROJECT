@@ -41,37 +41,24 @@ require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/currency_api.php';
 require_once __DIR__ . '/../../utils/audit_helper.php';
 require_once __DIR__ . '/../../utils/stored_procedure_helper.php';
+require_once __DIR__ . '/../../utils/permissions.php';
 
-// Get authorization header
-$headers = getallheaders();
-$token = null;
+// Get HTTP method and route
+$method = $_SERVER['REQUEST_METHOD'];
+$path = $_SERVER['PATH_INFO'] ?? '';
 
-if (isset($headers['Authorization'])) {
-    $token = str_replace('Bearer ', '', $headers['Authorization']);
-}
+// Determine required permission based on method
+$permissionMap = [
+    'GET' => 'orders.view',
+    'POST' => 'orders.create',
+    'PUT' => 'orders.update',
+    'DELETE' => 'orders.cancel'
+];
 
-if (!$token) {
-    sendError('Authorization token required', 401);
-}
+$requiredPermission = $permissionMap[$method] ?? 'orders.view';
 
-// Validate token
-$userId = validateToken($token);
-if (!$userId) {
-    sendError('Invalid or expired token', 401);
-}
-
-// Check if user is admin
-try {
-    $stmt = $pdo->prepare("SELECT role FROM users WHERE user_id = ?");
-    $stmt->execute([$userId]);
-    $user = $stmt->fetch();
-    
-    if (!$user || $user['role'] !== 'admin') {
-        sendError('Admin access required', 403);
-    }
-} catch (PDOException $e) {
-    sendError('Database error', 500);
-}
+// Enhanced authentication with permission checking
+$userId = requireAdminAuthWithPermission($requiredPermission);
 
 // Get request method and path
 $method = $_SERVER['REQUEST_METHOD'];

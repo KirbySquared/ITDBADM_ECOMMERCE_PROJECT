@@ -38,37 +38,23 @@
  */
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
+require_once __DIR__ . '/../../utils/permissions.php';
 
-// Get authorization header
-$headers = getallheaders();
-$token = null;
+// Get HTTP method
+$method = $_SERVER['REQUEST_METHOD'];
 
-if (isset($headers['Authorization'])) {
-    $token = str_replace('Bearer ', '', $headers['Authorization']);
-}
+// Determine required permission based on method
+$permissionMap = [
+    'GET' => 'users.view',
+    'POST' => 'users.create',
+    'PUT' => 'users.update',
+    'DELETE' => 'users.delete'
+];
 
-if (!$token) {
-    sendError('Authorization token required', 401);
-}
+$requiredPermission = $permissionMap[$method] ?? 'users.view';
 
-// Validate token
-$userId = validateToken($token);
-if (!$userId) {
-    sendError('Invalid or expired token', 401);
-}
-
-// Check if user is admin
-try {
-    $stmt = $pdo->prepare("SELECT role FROM users WHERE user_id = ?");
-    $stmt->execute([$userId]);
-    $user = $stmt->fetch();
-    
-    if (!$user || $user['role'] !== 'admin') {
-        sendError('Admin access required', 403);
-    }
-} catch (PDOException $e) {
-    sendError('Database error', 500);
-}
+// Enhanced authentication with permission checking
+$userId = requireAdminAuthWithPermission($requiredPermission);
 
 // Get request method and path
 $method = $_SERVER['REQUEST_METHOD'];
