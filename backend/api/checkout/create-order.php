@@ -453,31 +453,20 @@ try {
         $paymentStatus = ($paymentMethod === 'cod') ? 'pending' : 'pending'; // All start as pending
         $transactionId = 'TXN-' . strtoupper(bin2hex(random_bytes(8)));
         
-        // Use stored procedure to record payment
-        try {
-            $message = callStoredProcedureMessage($pdo, 'sp_record_payment', [
-                $orderId,
-                $paymentMethod,
-                $totalAmount,
-                $currency,
-                $transactionId,
-                $userId
-            ]);
-            // Note: sp_record_payment sets status to 'completed', but we want 'pending' initially
-            // So we'll update it back to pending if needed
-            if ($paymentStatus === 'pending') {
-                $stmt = $pdo->prepare("UPDATE payments SET payment_status = 'pending' WHERE order_id = ?");
-                $stmt->execute([$orderId]);
-            }
-        } catch (PDOException $e) {
-            // If stored procedure fails, fall back to direct INSERT
-            error_log('sp_record_payment failed, using direct INSERT: ' . $e->getMessage());
-            $stmt = $pdo->prepare("
-                INSERT INTO payments (order_id, payment_method, payment_status, amount, currency, transaction_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([$orderId, $paymentMethod, $paymentStatus, $totalAmount, $currency, $transactionId]);
-        }
+        // Insert payment directly with 'pending' status
+        // Note: We don't use sp_record_payment here because it sets status to 'completed',
+        // and the trigger trg_payments_validate_status_change prevents changing from 'completed' to 'pending'
+        // Payment will be updated to 'completed' later in the checkout flow (line ~530)
+        $stmt = $pdo->prepare("
+            INSERT INTO payments (order_id, payment_method, payment_status, amount, currency, transaction_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+                payment_method = VALUES(payment_method),
+                amount = VALUES(amount),
+                currency = VALUES(currency),
+                transaction_id = VALUES(transaction_id)
+        ");
+        $stmt->execute([$orderId, $paymentMethod, $paymentStatus, $totalAmount, $currency, $transactionId]);
         
         // ATOMICITY: Currency snapshot creation within same transaction
         // CONSISTENCY: Preserves currency rate at time of order

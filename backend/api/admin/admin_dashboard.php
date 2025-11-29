@@ -49,12 +49,21 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 require_once __DIR__ . '/../../utils/currency_api.php';
 
-// Get authorization header
-$headers = getallheaders();
+// Get authorization header (case-insensitive for Windows compatibility)
+$headers = function_exists('getallheaders') ? getallheaders() : [];
 $token = null;
 
-if (isset($headers['Authorization'])) {
-    $token = str_replace('Bearer ', '', $headers['Authorization']);
+// Case-insensitive header check
+foreach ($headers as $k => $v) {
+    if (strtolower($k) === 'authorization') {
+        $token = preg_replace('/^Bearer\s+/i', '', $v);
+        break;
+    }
+}
+
+// Fallback: check $_SERVER if getallheaders() didn't work
+if (!$token && isset($_SERVER['HTTP_AUTHORIZATION'])) {
+    $token = preg_replace('/^Bearer\s+/i', '', $_SERVER['HTTP_AUTHORIZATION']);
 }
 
 if (!$token) {

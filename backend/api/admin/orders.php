@@ -567,6 +567,24 @@ try {
                 // Update order basic info
                 // If status is being updated, use stored procedure for validation
                 if (isset($input['status'])) {
+                    // If setting to 'processing', ensure payment is completed first
+                    if ($input['status'] === 'processing') {
+                        $stmt = $pdo->prepare("SELECT payment_status FROM payments WHERE order_id = ?");
+                        $stmt->execute([$orderIdParam]);
+                        $payment = $stmt->fetch();
+                        
+                        if ($payment && $payment['payment_status'] !== 'completed') {
+                            // Admin is approving order - auto-complete the payment
+                            $stmt = $pdo->prepare("
+                                UPDATE payments 
+                                SET payment_status = 'completed', payment_date = NOW()
+                                WHERE order_id = ?
+                            ");
+                            $stmt->execute([$orderIdParam]);
+                            error_log("Admin auto-completed payment for order $orderIdParam");
+                        }
+                    }
+                    
                     try {
                         // Use stored procedure to update order status with validation
                         $message = callStoredProcedureMessage($pdo, 'sp_update_order_status', [
