@@ -127,3 +127,71 @@ export const getCurrencyOptions = () => {
     label: `${currency.code} - ${currency.name} (${currency.symbol})`
   }))
 }
+
+/**
+ * Convert price from PHP (base currency) to target currency
+ * This is used for display purposes only - analytics data stays in PHP
+ * @param priceInPhp - Price in PHP
+ * @param targetCurrency - Target currency code
+ * @param exchangeRate - Exchange rate from PHP to target currency (rate_to_php from backend)
+ * @returns Converted price
+ */
+export const convertFromPhp = (priceInPhp: number, targetCurrency: string, exchangeRate: number | null): number => {
+  if (targetCurrency === 'PHP' || !exchangeRate || exchangeRate <= 0) {
+    return priceInPhp
+  }
+  // Exchange rate is rate_to_php (e.g., 0.018 for USD means 1 PHP = 0.018 USD)
+  // So to convert PHP to target: PHP * rate = Target
+  return round(priceInPhp * exchangeRate, 2)
+}
+
+/**
+ * Round number to specified decimal places
+ * @param num - Number to round
+ * @param decimals - Number of decimal places
+ * @returns Rounded number
+ */
+const round = (num: number, decimals: number): number => {
+  return Math.round(num * Math.pow(10, decimals)) / Math.pow(10, decimals)
+}
+
+/**
+ * Fetch exchange rate from backend
+ * @param currency - Currency code
+ * @returns Exchange rate (rate_to_php) or null if error
+ */
+export const fetchExchangeRate = async (currency: string): Promise<number | null> => {
+  if (currency === 'PHP') {
+    return 1.0
+  }
+
+  try {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      return null
+    }
+
+    const response = await fetch('http://localhost:8000/api/checkout/lock-currency', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ currency })
+    })
+
+    if (!response.ok) {
+      return null
+    }
+
+    const data = await response.json()
+    if (data.success && data.data?.rate_to_php) {
+      return parseFloat(data.data.rate_to_php)
+    }
+
+    return null
+  } catch (error) {
+    console.error('Error fetching exchange rate:', error)
+    return null
+  }
+}

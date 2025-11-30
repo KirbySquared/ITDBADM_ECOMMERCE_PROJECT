@@ -177,11 +177,12 @@ if ($method === 'GET') {
                     $params[] = (int)$_GET['branch_id'];
                 }
                 if (isset($_GET['date_from'])) {
-                    $whereConditions[] = "sale_date >= ?";
+                    $whereConditions[] = "DATE(sale_date) >= ?";
                     $params[] = $_GET['date_from'];
                 }
                 if (isset($_GET['date_to'])) {
-                    $whereConditions[] = "sale_date <= ?";
+                    // Use DATE() to ensure we include the entire day, even if sale_date is DATETIME
+                    $whereConditions[] = "DATE(sale_date) <= ?";
                     $params[] = $_GET['date_to'];
                 }
                 if (isset($_GET['currency'])) {

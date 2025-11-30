@@ -14,7 +14,7 @@
 
 import { useState, useEffect } from 'react'
 import { useCurrency } from '../context/CurrencyContext'
-import { formatPrice, formatNumber } from '../utils/currency'
+import { formatPrice, formatNumber, convertFromPhp, fetchExchangeRate } from '../utils/currency'
 import './AdminAnalytics.css'
 
 // Chart.js imports
@@ -63,15 +63,34 @@ function AdminAnalytics() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [data, setData] = useState<AnalyticsData | null>(null)
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null)
+  // Initialize date range - ensure end date includes today by setting time to end of day
+  const getEndDate = () => {
+    const today = new Date()
+    today.setHours(23, 59, 59, 999) // End of today
+    return today.toISOString().split('T')[0] // Still use date only for API, but ensures we get today
+  }
+  
   const [dateRange, setDateRange] = useState({
     start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days ago
-    end: new Date().toISOString().split('T')[0] // today
+    end: new Date().toISOString().split('T')[0] // today (will be inclusive)
   })
 
+  // Fetch exchange rate when currency changes (for display conversion only)
+  useEffect(() => {
+    const loadExchangeRate = async () => {
+      const rate = await fetchExchangeRate(currency)
+      setExchangeRate(rate)
+    }
+    loadExchangeRate()
+  }, [currency])
+
+  // Fetch analytics data only when date range changes, NOT when currency changes
+  // Currency changes only affect display conversion, not the underlying data
   useEffect(() => {
     fetchAnalyticsData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, dateRange.start, dateRange.end])
+  }, [dateRange.start, dateRange.end])
 
   const fetchAnalyticsData = async () => {
     setLoading(true)
@@ -86,6 +105,8 @@ function AdminAnalytics() {
       }
 
       // Fetch all analytics data in parallel
+      // Note: We don't pass currency parameter - analytics should show base data (PHP)
+      // Currency is only used for display formatting, not for data conversion
       const [
         dailySalesRes,
         orderDetailsRes,
@@ -97,31 +118,34 @@ function AdminAnalytics() {
         branchSalesRes,
         allProductsRes
       ] = await Promise.all([
-        fetch(`http://localhost:8000/api/admin/views?view=v_daily_sales_totals&date_from=${dateRange.start}&date_to=${dateRange.end}&limit=1000&currency=${currency}`, {
+        fetch(`http://localhost:8000/api/admin/views?view=v_daily_sales_totals&date_from=${dateRange.start}&date_to=${dateRange.end}&limit=1000`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/admin/views?view=v_order_details&date_from=${dateRange.start}&date_to=${dateRange.end}&limit=1000&currency=${currency}`, {
+        // Fetch ALL order details (no date filter) to get accurate sold counts for all products
+        fetch(`http://localhost:8000/api/admin/views?view=v_order_details&limit=10000`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/admin/views?view=v_top_rated_products&limit=10&currency=${currency}`, {
+        fetch(`http://localhost:8000/api/admin/views?view=v_top_rated_products&limit=10`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/admin/views?view=v_order_summary&limit=1000&currency=${currency}`, {
+        fetch(`http://localhost:8000/api/admin/views?view=v_order_summary&limit=1000`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/admin/views?view=v_low_stock_alerts&limit=100&currency=${currency}`, {
+        fetch(`http://localhost:8000/api/admin/views?view=v_low_stock_alerts&limit=100`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/admin/views?view=v_customer_purchase_summary&limit=20&currency=${currency}`, {
+        fetch(`http://localhost:8000/api/admin/views?view=v_customer_purchase_summary&limit=20`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/admin/views?view=v_daily_sales_totals&date_from=${dateRange.start}&date_to=${dateRange.end}&limit=1000&currency=${currency}`, {
+        fetch(`http://localhost:8000/api/admin/views?view=v_daily_sales_totals&date_from=${dateRange.start}&date_to=${dateRange.end}&limit=1000`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/admin/views?view=v_daily_sales_totals&date_from=${dateRange.start}&date_to=${dateRange.end}&limit=1000&currency=${currency}`, {
+        fetch(`http://localhost:8000/api/admin/views?view=v_daily_sales_totals&date_from=${dateRange.start}&date_to=${dateRange.end}&limit=1000`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`http://localhost:8000/api/products?limit=10000&currency=${currency}`, {
+        // Fetch products - try to get with stock information
+        // Use branch_id=0 to get all products, but we'll need to fetch stock separately
+        fetch(`http://localhost:8000/api/admin/views?view=v_product_catalog&limit=10000`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ])
@@ -167,42 +191,84 @@ function AdminAnalytics() {
         throw new Error(errorResponse?.data.message || 'Failed to fetch analytics data')
       }
       
-      // Check products API separately (it returns { success: true, data: { products: [...] } })
+      // Check products API response
+      if (!allProductsRes.ok) {
+        console.warn('Products API returned error:', allProductsRes.status, allProductsRes.statusText)
+        const errorText = await allProductsRes.text().catch(() => 'Unknown error')
+        console.warn('Products API error details:', errorText)
+      }
+
+      // Check products API separately (it returns { success: true, data: [...] } or { data: [...] })
       if (allProductsData && allProductsData.success === false) {
-        console.warn('Products API returned error, but continuing with other data')
+        console.warn('Products API returned error, but continuing with other data:', allProductsData.message)
       }
 
       // Process products data - aggregate stock across all branches
       const productsMap = new Map()
       
       // Handle different API response structures
-      // Products API returns: { success: true, data: { products: [...] }, message: "OK" }
+      // Views API returns: { success: true, data: { data: [...] } }
+      // Admin products API returns: { success: true, data: [...] } or { data: { products: [...] } }
       let productsList: any[] = []
       if (Array.isArray(allProductsData)) {
         productsList = allProductsData
-      } else if (allProductsData && allProductsData.data && Array.isArray(allProductsData.data.products)) {
-        productsList = allProductsData.data.products
+      } else if (allProductsData && allProductsData.data) {
+        if (Array.isArray(allProductsData.data)) {
+          productsList = allProductsData.data
+        } else if (allProductsData.data.data && Array.isArray(allProductsData.data.data)) {
+          // Views API structure: { success: true, data: { data: [...] } }
+          productsList = allProductsData.data.data
+        } else if (allProductsData.data.products && Array.isArray(allProductsData.data.products)) {
+          productsList = allProductsData.data.products
+        }
       } else if (allProductsData && Array.isArray(allProductsData.products)) {
         productsList = allProductsData.products
-      } else if (allProductsData && Array.isArray(allProductsData.data)) {
-        productsList = allProductsData.data
-      } else if (allProductsData && allProductsData.success && allProductsData.data && Array.isArray(allProductsData.data.products)) {
-        productsList = allProductsData.data.products
-      } else if (allProductsData && allProductsData.success && Array.isArray(allProductsData.data)) {
-        productsList = allProductsData.data
-      } else if (allProductsData && allProductsData.success && Array.isArray(allProductsData.products)) {
-        productsList = allProductsData.products
+      } else if (allProductsData && allProductsData.success && allProductsData.data) {
+        if (Array.isArray(allProductsData.data)) {
+          productsList = allProductsData.data
+        } else if (allProductsData.data.data && Array.isArray(allProductsData.data.data)) {
+          // Views API structure
+          productsList = allProductsData.data.data
+        } else if (allProductsData.data.products && Array.isArray(allProductsData.data.products)) {
+          productsList = allProductsData.data.products
+        }
       }
       
       console.log('Products data structure:', { 
+        rawResponse: allProductsData,
         isArray: Array.isArray(allProductsData),
         hasData: !!allProductsData?.data,
         hasProducts: !!allProductsData?.data?.products,
-        productsCount: productsList.length
+        isDataArray: Array.isArray(allProductsData?.data),
+        productsCount: productsList.length,
+        firstProduct: productsList[0] // Show structure of first product
       })
       
       // Only process if we have a valid array
       if (Array.isArray(productsList) && productsList.length > 0) {
+        // First, get all product IDs
+        const productIds = productsList.map((p: any) => p.product_id).filter((id: any) => id)
+        
+        // Fetch stock quantities for all products aggregated across all branches
+        let stockData: Record<number, number> = {}
+        if (productIds.length > 0) {
+          try {
+            // Fetch stock from inventory view or make a separate API call
+            // For now, we'll aggregate from the products we got, or fetch separately
+            // If products have stock_quantity, use it; otherwise fetch separately
+            const hasStockInResponse = productsList.some((p: any) => p.stock_quantity !== undefined)
+            
+            if (!hasStockInResponse) {
+              // Fetch stock aggregated across all branches using a view or direct query
+              // We'll use the order details to get sold_count, and fetch stock separately
+              // For now, set stock to 0 and we'll update it if we can fetch it
+              console.log('Products API did not include stock_quantity, will try to fetch separately')
+            }
+          } catch (err) {
+            console.warn('Error fetching stock data:', err)
+          }
+        }
+        
         productsList.forEach((product: any) => {
           const productId = product.product_id
           if (!productsMap.has(productId)) {
@@ -212,27 +278,78 @@ function AdminAnalytics() {
               brand: product.brand || 'N/A',
               model: product.model || 'N/A',
               category_name: product.category_name || 'N/A',
-              price: product.display_price || product.price || 0,
-              total_stock: 0,
-              sold_count: parseInt(product.sold_count || 0)
+              price: product.display_price || product.price || product.price_php || 0,
+              // Use total_stock_quantity from view, or stock_quantity, or 0
+              total_stock: parseInt(product.total_stock_quantity || product.stock_quantity || 0),
+              sold_count: 0 // Will be calculated from order details
             })
-          }
-          // Aggregate stock from all branches
-          const currentStock = parseInt(product.stock_quantity || 0)
-          const existing = productsMap.get(productId)
-          if (existing) {
-            existing.total_stock += currentStock
+          } else {
+            // If product already exists (duplicate), aggregate stock
+            const existing = productsMap.get(productId)
+            if (existing) {
+              existing.total_stock += parseInt(product.total_stock_quantity || product.stock_quantity || 0)
+            }
           }
         })
       }
       
+      // Get all products from the map
       const allProductsWithStock = Array.from(productsMap.values())
-
-      // Calculate top selling products by quantity from order details
+      
+      // Calculate sold_count from ALL order details (not filtered by date)
       const orderDetails = orderDetailsData.data?.data || []
+      
+      console.log('Order details count:', orderDetails.length)
+      if (orderDetails.length > 0) {
+        console.log('Sample order detail:', orderDetails[0])
+      }
+      
+      const productSoldCounts: Record<number, number> = {}
+      
+      // Count sold quantities for ALL products from ALL orders (excluding cancelled)
+      orderDetails.forEach((order: any) => {
+        if (order.product_id && order.quantity) {
+          const productId = order.product_id
+          // Only count orders that are not cancelled
+          const orderStatus = order.order_status || order.status || ''
+          if (orderStatus.toLowerCase() !== 'cancelled') {
+            productSoldCounts[productId] = (productSoldCounts[productId] || 0) + parseInt(order.quantity || 0)
+          }
+        }
+      })
+      
+      // Update sold_count for all products
+      allProductsWithStock.forEach((product: any) => {
+        if (productSoldCounts[product.product_id]) {
+          product.sold_count = productSoldCounts[product.product_id]
+        }
+      })
+      
+      // Log summary for debugging
+      console.log('Products summary:', {
+        totalProducts: allProductsWithStock.length,
+        productsWithStock: allProductsWithStock.filter(p => p.total_stock > 0).length,
+        productsWithSales: allProductsWithStock.filter(p => p.sold_count > 0).length,
+        totalOrdersProcessed: orderDetails.length,
+        sampleProduct: allProductsWithStock.find(p => p.sold_count > 0) || allProductsWithStock[0]
+      })
+      
+      // Calculate top selling products by quantity from order details (for the chart)
       const productQuantities: Record<number, { name: string; quantity: number; revenue: number }> = {}
       
-      orderDetails.forEach((order: any) => {
+      // Filter order details by date range for the top selling products chart
+      const filteredOrderDetails = orderDetails.filter((order: any) => {
+        if (!order.order_date) return false
+        const orderDate = new Date(order.order_date)
+        const startDate = new Date(dateRange.start)
+        const endDate = new Date(dateRange.end)
+        endDate.setHours(23, 59, 59, 999) // Include the entire end date
+        const orderStatus = order.order_status || order.status || ''
+        return orderDate >= startDate && orderDate <= endDate && 
+               orderStatus.toLowerCase() !== 'cancelled'
+      })
+      
+      filteredOrderDetails.forEach((order: any) => {
         if (order.product_id && order.quantity) {
           const productId = order.product_id
           if (!productQuantities[productId]) {
@@ -291,12 +408,34 @@ function AdminAnalytics() {
 
   // Prepare chart data
   const prepareDailySalesChart = () => {
-    if (!data?.dailySales.length) return null
+    if (!data?.dailySales.length) {
+      console.log('No daily sales data available')
+      return null
+    }
+
+      const todayStr = new Date().toISOString().split('T')[0]
+      const todaySales = data.dailySales.filter((sale: any) => {
+        const saleDate = sale.sale_date ? sale.sale_date.split('T')[0].split(' ')[0] : null
+        return saleDate === todayStr
+      })
+      
+      console.log('Daily sales data:', {
+        count: data.dailySales.length,
+        dateRange: dateRange,
+        today: todayStr,
+        todaySalesCount: todaySales.length,
+        todaySales: todaySales,
+        sampleSales: data.dailySales.slice(0, 3),
+        allDates: [...new Set(data.dailySales.map((s: any) => s.sale_date?.split('T')[0]?.split(' ')[0]).filter(Boolean))]
+      })
 
     // Group by date and sum revenue
     const salesByDate: Record<string, number> = {}
     data.dailySales.forEach(sale => {
-      const date = sale.sale_date
+      // Handle different date formats (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+      const date = sale.sale_date ? sale.sale_date.split('T')[0].split(' ')[0] : null
+      if (!date) return
+      
       if (!salesByDate[date]) {
         salesByDate[date] = 0
       }
@@ -305,12 +444,23 @@ function AdminAnalytics() {
 
     const dates = Object.keys(salesByDate).sort()
     const revenues = dates.map(date => salesByDate[date])
+    
+    console.log('Grouped daily sales:', {
+      dates: dates,
+      revenues: revenues,
+      includesToday: dates.includes(new Date().toISOString().split('T')[0])
+    })
+
+    // Convert revenues for display (data stays in PHP, only display is converted)
+    const convertedRevenues = revenues.map(revenue => 
+      convertFromPhp(revenue, currency, exchangeRate)
+    )
 
     return {
       labels: dates.map(date => new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
       datasets: [{
         label: `Daily Revenue (${currency})`,
-        data: revenues,
+        data: convertedRevenues,
         borderColor: 'rgb(75, 192, 192)',
         backgroundColor: 'rgba(75, 192, 192, 0.2)',
         fill: true,
@@ -436,11 +586,16 @@ function AdminAnalytics() {
 
     const customers = data.customerPurchaseSummary.slice(0, 10)
     
+    // Convert total_spent from PHP to selected currency for display
+    const convertedSpent = customers.map(c => 
+      convertFromPhp(parseFloat(c.total_spent || 0), currency, exchangeRate)
+    )
+    
     return {
       labels: customers.map(c => `${c.first_name} ${c.last_name}`.substring(0, 15)),
       datasets: [{
         label: 'Total Spent',
-        data: customers.map(c => parseFloat(c.total_spent || 0)),
+        data: convertedSpent,
         backgroundColor: 'rgba(153, 102, 255, 0.8)',
         borderColor: 'rgba(153, 102, 255, 1)',
         borderWidth: 1
@@ -451,7 +606,7 @@ function AdminAnalytics() {
   const prepareBranchSalesChart = () => {
     if (!data?.branchSales.length) return null
 
-    // Aggregate sales by branch
+    // Aggregate sales by branch (in PHP)
     const salesByBranch: Record<string, number> = {}
     data.branchSales.forEach(sale => {
       const branch = sale.branch_name || 'Unknown'
@@ -461,11 +616,16 @@ function AdminAnalytics() {
       salesByBranch[branch] += parseFloat(sale.total_revenue || 0)
     })
 
+    // Convert revenues for display
+    const convertedRevenues = Object.values(salesByBranch).map(revenue =>
+      convertFromPhp(revenue, currency, exchangeRate)
+    )
+
     return {
       labels: Object.keys(salesByBranch),
       datasets: [{
         label: 'Revenue by Branch',
-        data: Object.values(salesByBranch),
+        data: convertedRevenues,
         backgroundColor: 'rgba(75, 192, 192, 0.8)',
         borderColor: 'rgba(75, 192, 192, 1)',
         borderWidth: 1
@@ -743,10 +903,11 @@ function AdminAnalytics() {
                               const product = chartData?.products?.[context.dataIndex]
                               const rating = context.parsed.y
                               let label = `Rating: ${rating.toFixed(1)}/5.0`
-                              // Check for price in various possible fields (converted price, display_price, or price_php)
-                              const price = product?.price || product?.display_price || product?.price_php
-                              if (product && price) {
-                                label += ` | Price: ${formatPrice(price, currency)}`
+                              // Check for price in various possible fields (price is in PHP, convert for display)
+                              const pricePhp = product?.price || product?.display_price || product?.price_php
+                              if (product && pricePhp) {
+                                const convertedPrice = convertFromPhp(parseFloat(pricePhp), currency, exchangeRate)
+                                label += ` | Price: ${formatPrice(convertedPrice, currency)}`
                               }
                               return label
                             },
@@ -832,7 +993,15 @@ function AdminAnalytics() {
                       ...chartOptions,
                       plugins: {
                         ...chartOptions.plugins,
-                        title: { display: true, text: 'Customer Lifetime Value' }
+                        title: { display: true, text: 'Customer Lifetime Value' },
+                        tooltip: {
+                          callbacks: {
+                            label: (context: any) => {
+                              const value = context.parsed.y
+                              return `Total Spent: ${formatPrice(value, currency)}`
+                            }
+                          }
+                        }
                       }
                     }} />
                   ) : (
@@ -862,7 +1031,15 @@ function AdminAnalytics() {
                       ...chartOptions,
                       plugins: {
                         ...chartOptions.plugins,
-                        title: { display: true, text: 'Branch Performance' }
+                        title: { display: true, text: 'Branch Performance' },
+                        tooltip: {
+                          callbacks: {
+                            label: (context: any) => {
+                              const value = context.parsed.y
+                              return `Revenue: ${formatPrice(value, currency)}`
+                            }
+                          }
+                        }
                       }
                     }} />
                   ) : (
@@ -980,7 +1157,7 @@ function AdminAnalytics() {
                               <td>{product.brand}</td>
                               <td>{product.model}</td>
                               <td>{product.category_name}</td>
-                              <td>{formatPrice(product.price, currency)}</td>
+                              <td>{formatPrice(convertFromPhp(product.price, currency, exchangeRate), currency)}</td>
                               <td className="text-center">
                                 <span className="badge bg-info">{formatNumber(product.total_stock)}</span>
                               </td>
