@@ -93,12 +93,18 @@ export default function ProductDetail() {
         setError(null)
 
         // Use user's branch_id if available
-        const url =
-          userBranchId != null
-            ? api(`/products?id=${encodeURIComponent(id)}&branch_id=${userBranchId}&currency=${encodeURIComponent(currency)}`)
-            : api(`/products?id=${encodeURIComponent(id)}&currency=${encodeURIComponent(currency)}`)
+        const url = api(`/products?id=${encodeURIComponent(id)}&currency=${encodeURIComponent(currency)}`)
 
-        const res = await fetch(url, { credentials: 'include' })
+        // Build fetch options - include auth header if user is logged in
+        const token = localStorage.getItem('token')
+        const fetchOptions: RequestInit = { credentials: 'include' }
+        if (token) {
+          fetchOptions.headers = {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+
+        const res = await fetch(url, fetchOptions)
         const ct = res.headers.get('content-type') || ''
         const parse = async () =>
           ct.includes('application/json') ? res.json() : JSON.parse(await res.text())
@@ -453,7 +459,9 @@ export default function ProductDetail() {
               </div>
               <div className="col-6">
                 <div className="d-flex flex-column">
-                  <span className="text-muted small">In Stock</span>
+                  <span className="text-muted small">
+                    {user?.branch_name ? `In Stock at ${user.branch_name}` : 'In Stock (All Branches)'}
+                  </span>
                   <span className={`fw-bold fs-5 ${availableStock > 0 ? 'text-primary' : 'text-danger'}`}>
                     {availableStock}
                   </span>
@@ -500,7 +508,7 @@ export default function ProductDetail() {
                 </button>
               </div>
               <div className="form-text">
-                Available: {availableStock} units
+                Available{user?.branch_name ? ` at ${user.branch_name}` : ''}: {availableStock} units
                 {product.category_name && ` • Max per ${product.category_name}: ${maxQuantity}`}
               </div>
             </div>
