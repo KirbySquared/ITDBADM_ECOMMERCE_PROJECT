@@ -1,15 +1,15 @@
--- ========================================
+
 -- CREATE MISSING DATABASE VIEWS FROM PROPOSAL
--- ========================================
+
 -- This script creates all missing database views required by the proposal
 -- Compatible with MySQL Workbench
 -- Run this script in MySQL Workbench
 
 USE electronics_store;
 
--- ========================================
+
 -- 1. PRODUCT CATALOG VIEW
--- ========================================
+
 -- Displays all products with category name, price, and available stock
 DROP VIEW IF EXISTS v_product_catalog;
 
@@ -49,9 +49,9 @@ GROUP BY
     p.created_at,
     p.updated_at;
 
--- ========================================
+
 -- 2. PRODUCT AVAILABILITY PER BRANCH VIEW
--- ========================================
+
 -- Lists product availability per branch (e.g., Makati vs Cebu)
 DROP VIEW IF EXISTS v_product_availability_by_branch;
 
@@ -78,9 +78,9 @@ CROSS JOIN branches b
 LEFT JOIN product_inventory pi ON p.product_id = pi.product_id AND pi.branch_id = b.branch_id
 ORDER BY p.product_name, b.branch_name;
 
--- ========================================
+
 -- 3. BRANCH INVENTORY LEVELS VIEW
--- ========================================
+
 -- Provides real-time branch inventory levels and highlights low-stock items
 DROP VIEW IF EXISTS v_branch_inventory_levels;
 
@@ -124,9 +124,9 @@ GROUP BY
     p.price
 ORDER BY b.branch_name, p.product_name;
 
--- ========================================
+
 -- 4. DAILY SALES TOTALS VIEW
--- ========================================
+
 -- Shows daily sales totals per branch and per currency for reporting
 DROP VIEW IF EXISTS v_daily_sales_totals;
 
@@ -156,9 +156,9 @@ GROUP BY
     o.currency
 ORDER BY sale_date DESC, b.branch_name, o.currency;
 
--- ========================================
+
 -- 5. ORDER SUMMARY VIEW
--- ========================================
+
 -- Provides a summarized view of each order, including total items, total amount, and customer information
 DROP VIEW IF EXISTS v_order_summary;
 
@@ -214,9 +214,9 @@ GROUP BY
     o.updated_at
 ORDER BY o.order_date DESC;
 
--- ========================================
+
 -- 6. ORDER DETAILS VIEW
--- ========================================
+
 -- Displays detailed order lines including product names, quantities, and subtotals
 DROP VIEW IF EXISTS v_order_details;
 
@@ -250,9 +250,9 @@ INNER JOIN users u ON o.user_id = u.user_id
 LEFT JOIN branches b ON o.branch_id = b.branch_id
 ORDER BY o.order_date DESC, o.order_id, oi.order_item_id;
 
--- ========================================
+
 -- 7. ORDER DASHBOARD VIEW
--- ========================================
+
 -- Combines order, customer, branch, and payment data for admin dashboards
 DROP VIEW IF EXISTS v_order_dashboard;
 
@@ -319,9 +319,9 @@ GROUP BY
     o.updated_at
 ORDER BY o.order_date DESC;
 
--- ========================================
+
 -- 8. TOP-RATED PRODUCTS VIEW
--- ========================================
+
 -- Lists top-rated products with average ratings and review counts
 DROP VIEW IF EXISTS v_top_rated_products;
 
@@ -355,9 +355,9 @@ GROUP BY
 HAVING review_count > 0
 ORDER BY average_rating DESC, review_count DESC;
 
--- ========================================
+
 -- 9. LOW STOCK ALERTS VIEW
--- ========================================
+
 -- Highlights low-stock or out-of-stock products for quick monitoring
 DROP VIEW IF EXISTS v_low_stock_alerts;
 
@@ -393,9 +393,9 @@ ORDER BY
     b.branch_name,
     p.product_name;
 
--- ========================================
+
 -- 10. CUSTOMER PURCHASE SUMMARY VIEW
--- ========================================
+
 -- Shows each customer's lifetime purchase value and order history summary
 DROP VIEW IF EXISTS v_customer_purchase_summary;
 
@@ -430,9 +430,9 @@ GROUP BY
     u.created_at
 ORDER BY total_spent DESC;
 
--- ========================================
+
 -- VERIFY VIEWS
--- ========================================
+
 SELECT 'Views created successfully!' AS Status;
 SELECT COUNT(*) AS total_views 
 FROM information_schema.views 

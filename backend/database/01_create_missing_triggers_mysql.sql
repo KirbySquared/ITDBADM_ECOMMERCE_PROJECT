@@ -1,15 +1,15 @@
--- ========================================
+
 -- CREATE MISSING TRIGGERS FROM PROPOSAL
--- ========================================
+
 -- This script creates all missing triggers required by the proposal
 -- Compatible with MySQL Workbench
 -- Run this script in MySQL Workbench
 
 USE electronics_store;
 
--- ========================================
+
 -- 1. AUTO-CALCULATE ORDER ITEM SUBTOTAL
--- ========================================
+
 -- Automatically calculates subtotal (quantity × unit_price) when order item is added/modified
 DROP TRIGGER IF EXISTS trg_order_items_calculate_subtotal;
 DROP TRIGGER IF EXISTS trg_order_items_update_subtotal;
@@ -38,9 +38,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 2. AUTO-UPDATE ORDER TOTAL WHEN ITEMS CHANGE
--- ========================================
+
 -- Automatically recalculates order total_amount when order_items are added, updated, or deleted
 DROP TRIGGER IF EXISTS trg_order_items_update_order_total_insert;
 DROP TRIGGER IF EXISTS trg_order_items_update_order_total_update;
@@ -89,9 +89,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 3. RESTORE STOCK WHEN ORDER IS CANCELLED
--- ========================================
+
 -- Automatically restores stock to inventory when order status changes to 'cancelled'
 DROP TRIGGER IF EXISTS trg_orders_restore_stock_on_cancel;
 
@@ -115,9 +115,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 4. LOG ORDER STATUS CHANGES TO TRANSACTION_LOG
--- ========================================
+
 -- Records every order status change (Pending → Processing → Shipped → Delivered) in transaction_log
 DROP TRIGGER IF EXISTS trg_orders_log_status_change;
 
@@ -155,9 +155,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 5. LOG PAYMENT ACTIVITIES TO TRANSACTION_LOG
--- ========================================
+
 -- Records all payment operations (create, update) in transaction_log
 DROP TRIGGER IF EXISTS trg_payments_log_insert;
 DROP TRIGGER IF EXISTS trg_payments_log_update;
@@ -225,9 +225,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 6. PREVENT INVALID PAYMENT STATUS CHANGES
--- ========================================
+
 -- Prevents invalid transitions (e.g., Completed → Pending)
 DROP TRIGGER IF EXISTS trg_payments_validate_status_change;
 
@@ -258,9 +258,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 7. PREVENT INVALID CURRENCY EXCHANGE RATES
--- ========================================
+
 -- Prevents zero or negative exchange rates
 -- Note: Only create if currencies table exists
 -- If currencies table doesn't exist, comment out or skip these triggers
@@ -295,9 +295,9 @@ END$$
 DELIMITER ;
 */
 
--- ========================================
+
 -- 8. PREVENT NEGATIVE PRICES (Additional Check)
--- ========================================
+
 -- Additional trigger to prevent negative prices (backup to CHECK constraint)
 DROP TRIGGER IF EXISTS trg_products_prevent_negative_price;
 DROP TRIGGER IF EXISTS trg_products_prevent_negative_price_update;
@@ -326,9 +326,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- VERIFY TRIGGERS
--- ========================================
+
 SELECT 'Triggers created successfully!' AS Status;
 SELECT COUNT(*) AS total_triggers 
 FROM information_schema.triggers 

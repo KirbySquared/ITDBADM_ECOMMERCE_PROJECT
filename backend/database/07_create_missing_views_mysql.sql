@@ -1,15 +1,15 @@
--- ========================================
+
 -- CREATE MISSING DATABASE VIEWS
--- ========================================
+
 -- This script creates the missing views from requirements
 -- Compatible with MySQL Workbench
 -- Run this script in MySQL Workbench
 
 USE electronics_store;
 
--- ========================================
+
 -- 1. MULTI-CURRENCY PRODUCT PRICES VIEW
--- ========================================
+
 -- Shows product prices in multiple currencies (PHP, USD, KRW) using the latest exchange rates
 -- Note: This view shows base PHP prices. Actual currency conversion is handled dynamically in PHP via API
 -- This view is for reference only - real-time rates come from the currency API
@@ -41,9 +41,9 @@ GROUP BY
     p.price
 ORDER BY p.product_name;
 
--- ========================================
+
 -- 2. ORDER STATUS TIMELINE VIEW
--- ========================================
+
 -- Shows a timeline of status changes for each order (used for tracking)
 -- Note: This view uses transaction_log to track order status changes
 -- If order_status_history table exists, use that instead
@@ -99,9 +99,9 @@ LEFT JOIN users u2 ON osh.changed_by = u2.user_id
 ORDER BY o.order_id, osh.changed_at DESC;
 */
 
--- ========================================
+
 -- 3. ORDERS WITH PAYMENT DETAILS VIEW
--- ========================================
+
 -- Displays all orders with their payment details and payment completion status
 -- This is a more focused view than v_order_dashboard, specifically for payment tracking
 DROP VIEW IF EXISTS v_orders_with_payment_details;
@@ -177,9 +177,9 @@ GROUP BY
     o.updated_at
 ORDER BY o.order_date DESC;
 
--- ========================================
+
 -- 4. SHOPPING CART VIEW
--- ========================================
+
 -- Lists all items currently in customers' shopping carts with product details
 -- Useful for analytics, abandoned cart reports, and cart management
 DROP VIEW IF EXISTS v_shopping_cart_details;
@@ -226,9 +226,9 @@ LEFT JOIN branches b ON c.branch_id = b.branch_id
 LEFT JOIN product_inventory pi ON p.product_id = pi.product_id AND pi.branch_id = c.branch_id
 ORDER BY c.added_at DESC, u.user_id, c.cart_id;
 
--- ========================================
+
 -- 5. TRANSACTION LOG ACTIVITIES VIEW
--- ========================================
+
 -- Displays recent staff and admin activities recorded in the transaction log
 -- Useful for audit trails and activity monitoring
 DROP VIEW IF EXISTS v_transaction_log_activities;
@@ -290,9 +290,9 @@ WHERE u.role IN ('admin', 'staff')
 ORDER BY al.created_at DESC;
 */
 
--- ========================================
+
 -- VERIFY VIEWS
--- ========================================
+
 SELECT 'Missing views created successfully!' AS Status;
 
 SELECT 

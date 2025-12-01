@@ -1,6 +1,6 @@
--- ========================================
+
 -- COMPLETE IMPLEMENTATION SCRIPT FOR MYSQL WORKBENCH
--- ========================================
+
 -- This script runs all missing triggers, stored procedures, and views
 -- Compatible with MySQL Workbench
 -- 
@@ -15,7 +15,7 @@
 --   01_create_missing_triggers_mysql.sql
 --   02_create_missing_stored_procedures_mysql.sql
 --   03_create_missing_views_mysql.sql
--- ========================================
+
 
 USE electronics_store;
 
@@ -23,9 +23,9 @@ SELECT '========================================' AS '';
 SELECT 'Starting Implementation...' AS Status;
 SELECT '========================================' AS '';
 
--- ========================================
+
 -- PART 1: CREATE TRIGGERS
--- ========================================
+
 SELECT 'Creating Triggers...' AS Status;
 
 -- Include trigger creation code here (or run 01_create_missing_triggers_mysql.sql separately)
@@ -33,27 +33,27 @@ SELECT 'Creating Triggers...' AS Status;
 -- Run: SOURCE 01_create_missing_triggers_mysql.sql; (if using command line)
 -- Or execute 01_create_missing_triggers_mysql.sql file in Workbench
 
--- ========================================
+
 -- PART 2: CREATE STORED PROCEDURES
--- ========================================
+
 SELECT 'Creating Stored Procedures...' AS Status;
 
 -- Include stored procedure creation code here (or run 02_create_missing_stored_procedures_mysql.sql separately)
 -- Run: SOURCE 02_create_missing_stored_procedures_mysql.sql; (if using command line)
 -- Or execute 02_create_missing_stored_procedures_mysql.sql file in Workbench
 
--- ========================================
+
 -- PART 3: CREATE VIEWS
--- ========================================
+
 SELECT 'Creating Views...' AS Status;
 
 -- Include view creation code here (or run 03_create_missing_views_mysql.sql separately)
 -- Run: SOURCE 03_create_missing_views_mysql.sql; (if using command line)
 -- Or execute 03_create_missing_views_mysql.sql file in Workbench
 
--- ========================================
+
 -- VERIFICATION
--- ========================================
+
 SELECT '========================================' AS '';
 SELECT 'Verification Results:' AS Status;
 SELECT '========================================' AS '';

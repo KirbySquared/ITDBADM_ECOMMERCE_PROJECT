@@ -1,6 +1,6 @@
--- ========================================
+
 -- PC BUILDER BUILDS TABLE
--- ========================================
+
 -- This table stores PC builder build configurations
 -- Each build represents a custom PC configuration with multiple components
 -- Discounts are applied at the build level, not individual items
@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS pc_builder_builds (
     CHECK (total_amount >= 0)
 );
 
--- ========================================
+
 -- ADD PC BUILDER BUILD ID TO CART TABLE
--- ========================================
+
 -- This links cart items to a PC builder build
 -- NULL means the item is not part of a build
 
@@ -158,9 +158,9 @@ PREPARE alterIfNotExists FROM @preparedStatement;
 EXECUTE alterIfNotExists;
 DEALLOCATE PREPARE alterIfNotExists;
 
--- ========================================
+
 -- PC BUILDER BUILD ITEMS TABLE
--- ========================================
+
 -- This table stores which products are in each build
 -- This allows us to track the build configuration even after items are removed from cart
 
@@ -185,9 +185,9 @@ CREATE TABLE IF NOT EXISTS pc_builder_build_items (
     UNIQUE KEY unique_build_product (build_id, product_id)
 );
 
--- ========================================
+
 -- INDEXES FOR PERFORMANCE
--- ========================================
+
 
 -- Create indexes if they don't exist
 SET @dbname = DATABASE();
@@ -274,9 +274,9 @@ PREPARE alterIfNotExists FROM @preparedStatement;
 EXECUTE alterIfNotExists;
 DEALLOCATE PREPARE alterIfNotExists;
 
--- ========================================
+
 -- VERIFICATION
--- ========================================
+
 
 SELECT 'PC Builder builds tables created successfully!' AS Status;
 

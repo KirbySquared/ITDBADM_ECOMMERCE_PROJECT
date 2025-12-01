@@ -1,15 +1,15 @@
--- ========================================
+
 -- CREATE MISSING STORED PROCEDURES
--- ========================================
+
 -- This script creates the missing stored procedures from requirements
 -- Compatible with MySQL Workbench
 -- Run this script in MySQL Workbench
 
 USE electronics_store;
 
--- ========================================
+
 -- 1. CREATE ORDER FROM CART
--- ========================================
+
 -- Creates a new order from the user's cart and saves all related items
 DROP PROCEDURE IF EXISTS sp_create_order_from_cart;
 
@@ -99,9 +99,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 2. ADD PRODUCT TO ORDER
--- ========================================
+
 -- Adds a specific product to an existing order and recalculates totals
 DROP PROCEDURE IF EXISTS sp_add_product_to_order;
 
@@ -160,9 +160,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 3. RECORD CUSTOMER PAYMENT
--- ========================================
+
 -- Records a customer payment and updates the order's payment status
 DROP PROCEDURE IF EXISTS sp_record_payment;
 
@@ -213,9 +213,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 4. VALIDATE AND UPDATE ORDER STATUS
--- ========================================
+
 -- Validates and updates the order status step-by-step (Pending → Processing → Shipped → Delivered)
 DROP PROCEDURE IF EXISTS sp_update_order_status;
 
@@ -293,9 +293,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 5. ADD STOCK TO BRANCH
--- ========================================
+
 -- Adds new product stock to a specific branch (e.g., for restocking or new shipment)
 DROP PROCEDURE IF EXISTS sp_add_stock_to_branch;
 
@@ -362,9 +362,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 6. ADJUST BRANCH INVENTORY
--- ========================================
+
 -- Adjusts branch inventory levels for reasons like damaged or missing items
 DROP PROCEDURE IF EXISTS sp_adjust_branch_inventory;
 
@@ -439,9 +439,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 7. GET CUSTOMER PURCHASE HISTORY
--- ========================================
+
 -- Displays all orders and items purchased by a particular customer within a date range
 DROP PROCEDURE IF EXISTS sp_get_customer_purchase_history;
 
@@ -482,9 +482,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 8. INSERT OR UPDATE PRODUCT REVIEW
--- ========================================
+
 -- Inserts or updates a product review made by a customer
 DROP PROCEDURE IF EXISTS sp_upsert_product_review;
 
@@ -534,9 +534,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- VERIFY STORED PROCEDURES
--- ========================================
+
 SELECT 'All missing stored procedures created successfully!' AS Status;
 
 SELECT 

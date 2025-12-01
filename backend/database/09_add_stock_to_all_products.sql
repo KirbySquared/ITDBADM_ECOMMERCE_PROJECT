@@ -1,15 +1,15 @@
--- ========================================
+
 -- ADD STOCK TO ALL PRODUCTS
--- ========================================
+
 -- This script adds 10 stock units to all products in all branches
 -- If inventory already exists, it will be updated to 10
 -- If inventory doesn't exist, it will be created with 10 stock
 
 USE electronics_store;
 
--- ========================================
+
 -- METHOD 1: Using INSERT ... ON DUPLICATE KEY UPDATE
--- ========================================
+
 -- First, ensure there's a unique constraint on (product_id, branch_id)
 -- Check if unique constraint exists, if not create it
 SET @dbname = DATABASE();
@@ -50,9 +50,9 @@ CROSS JOIN branches b;
 UPDATE product_inventory
 SET stock_qty = 10;
 
--- ========================================
+
 -- VERIFICATION
--- ========================================
+
 -- Check how many inventory records were created/updated
 SELECT 
     COUNT(*) AS total_inventory_records,

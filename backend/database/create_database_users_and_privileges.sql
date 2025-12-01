@@ -32,9 +32,7 @@
 
 USE electronics_store;
 
--- ========================================
 -- 1. CREATE DATABASE USERS
--- ========================================
 
 -- Admin User (Full access for administrative tasks)
 -- Password should be changed in production!

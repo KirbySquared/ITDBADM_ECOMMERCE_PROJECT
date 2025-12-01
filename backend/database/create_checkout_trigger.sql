@@ -1,6 +1,6 @@
--- ========================================
+
 -- STOCK DEDUCTION TRIGGER FOR CHECKOUT
--- ========================================
+
 -- This trigger automatically deducts stock from product_inventory
 -- when a payment is completed (payment_status = 'completed')
 -- 
@@ -39,9 +39,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- STOCK VALIDATION TRIGGER
--- ========================================
+
 -- This trigger prevents stock from going negative
 -- It will raise an error if an update would make stock_qty negative
 

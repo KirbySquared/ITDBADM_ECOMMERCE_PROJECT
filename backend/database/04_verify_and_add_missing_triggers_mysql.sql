@@ -1,15 +1,15 @@
--- ========================================
+
 -- VERIFY AND ADD MISSING TRIGGERS
--- ========================================
+
 -- This script verifies if additional triggers exist and creates them if missing
 -- Run this AFTER running 01_create_missing_triggers_mysql.sql
 -- Compatible with MySQL Workbench
 
 USE electronics_store;
 
--- ========================================
+
 -- 1. STOCK VALIDATION TRIGGER
--- ========================================
+
 -- Prevents stock from going negative
 DROP TRIGGER IF EXISTS trg_product_inventory_prevent_negative_stock;
 
@@ -30,9 +30,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 2. PRODUCT AUDIT TRIGGERS
--- ========================================
+
 -- These triggers log product operations to audit_logs table
 -- Note: Requires audit_logs table to exist
 
@@ -117,9 +117,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 3. PRODUCT INVENTORY AUDIT TRIGGERS
--- ========================================
+
 -- These triggers log inventory operations to audit_logs table
 
 -- 3.1. Inventory Insert Audit
@@ -219,9 +219,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 4. USER REGISTRATION AUDIT TRIGGER
--- ========================================
+
 -- Logs user registration to audit_logs table
 
 DROP TRIGGER IF EXISTS trg_users_registration_audit;
@@ -240,9 +240,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 5. STOCK DEDUCTION TRIGGER (Optional)
--- ========================================
+
 -- Note: This trigger has an empty body because stock deduction is handled in PHP
 -- It's kept here for reference but doesn't do anything
 -- Stock deduction happens in create-order.php when payment_status = 'completed'
@@ -268,9 +268,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- VERIFY ALL TRIGGERS
--- ========================================
+
 SELECT 'All additional triggers created/verified!' AS Status;
 
 -- List all triggers

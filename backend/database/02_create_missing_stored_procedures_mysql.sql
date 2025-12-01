@@ -1,15 +1,15 @@
--- ========================================
+
 -- CREATE MISSING STORED PROCEDURES FROM PROPOSAL
--- ========================================
+
 -- This script creates all missing stored procedures required by the proposal
 -- Compatible with MySQL Workbench
 -- Run this script in MySQL Workbench
 
 USE electronics_store;
 
--- ========================================
+
 -- 1. TOP-SELLING PRODUCTS REPORT
--- ========================================
+
 -- Generates a report of top-selling products for a specific period
 DROP PROCEDURE IF EXISTS sp_get_top_selling_products;
 
@@ -46,9 +46,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 2. MONTHLY SALES TOTALS
--- ========================================
+
 -- Calculates total sales and revenue for a selected month
 DROP PROCEDURE IF EXISTS sp_get_monthly_sales;
 
@@ -78,9 +78,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 3. MONTHLY SALES COMPARISON PER BRANCH
--- ========================================
+
 -- Produces a monthly sales comparison report per branch
 DROP PROCEDURE IF EXISTS sp_get_monthly_sales_by_branch;
 
@@ -113,9 +113,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 4. TOTAL REVENUE BY CURRENCY
--- ========================================
+
 -- Calculates total revenue grouped by currency used
 DROP PROCEDURE IF EXISTS sp_get_revenue_by_currency;
 
@@ -145,9 +145,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 5. CANCEL ORDER AND RESTORE STOCK
--- ========================================
+
 -- Cancels an order and automatically restores stock
 DROP PROCEDURE IF EXISTS sp_cancel_order;
 
@@ -225,9 +225,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 6. TRANSFER STOCK BETWEEN BRANCHES
--- ========================================
+
 -- Transfers product stock from one branch to another
 DROP PROCEDURE IF EXISTS sp_transfer_stock;
 
@@ -313,9 +313,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 7. UPDATE ORDER ITEM QUANTITY
--- ========================================
+
 -- Updates order item quantity and recalculates subtotal
 DROP PROCEDURE IF EXISTS sp_update_order_item_quantity;
 
@@ -373,9 +373,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 8. GET LOW STOCK PRODUCTS
--- ========================================
+
 -- Lists all products below a certain stock level threshold
 DROP PROCEDURE IF EXISTS sp_get_low_stock_products;
 
@@ -407,9 +407,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- VERIFY STORED PROCEDURES
--- ========================================
+
 SELECT 'Stored procedures created successfully!' AS Status;
 SELECT COUNT(*) AS total_procedures 
 FROM information_schema.routines 

@@ -1,15 +1,15 @@
--- ========================================
+
 -- ADD MISSING TRIGGERS BASED ON EXISTING TRIGGERS
--- ========================================
+
 -- This script adds any triggers that might be missing
 -- Based on the triggers you already have in your database
 -- Compatible with MySQL Workbench
 
 USE electronics_store;
 
--- ========================================
+
 -- 1. STOCK VALIDATION TRIGGER
--- ========================================
+
 -- Prevents stock from going negative
 -- Check if it exists first
 SET @trigger_exists = (
@@ -55,9 +55,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- 2. STOCK DEDUCTION TRIGGER (Optional/Placeholder)
--- ========================================
+
 -- Note: This trigger is intentionally empty because stock deduction is handled in PHP
 -- It's kept here for reference but doesn't do anything
 
@@ -82,9 +82,9 @@ END$$
 
 DELIMITER ;
 
--- ========================================
+
 -- VERIFICATION
--- ========================================
+
 SELECT '========================================' AS '';
 SELECT 'Trigger Verification Complete!' AS Status;
 SELECT '========================================' AS '';
