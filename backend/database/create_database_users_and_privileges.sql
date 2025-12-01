@@ -1,38 +1,6 @@
--- ========================================
--- DATABASE USERS AND PRIVILEGES MANAGEMENT
--- ========================================
--- This creates database users with fine-grained privileges
--- Exceeds minimum requirements for Exemplary grade
---
--- NOTE: These are DATABASE-LEVEL users (MySQL accounts), which are different
--- from APPLICATION-LEVEL roles (admin, staff, user) stored in the users table.
---
--- Application Roles (in users.role column):
---   - admin: Application administrator
---   - staff: Application staff member
---   - user: Application customer
---
--- Database Users (MySQL accounts created here):
---   - admin_user: Database user with full privileges
---   - staff_user: Database user with limited privileges
---   - app_user: Database user for application operations
---   - readonly_user: Database user for reporting
---   - backup_user: Database user for backups
---
--- These database users can optionally be mapped to application roles,
--- but they work independently. Your application can continue using
--- your current database user while these serve as examples of GRANT/REVOKE.
---
--- Features:
--- - Role-based database users (admin_user, staff_user, app_user)
--- - Fine-grained privileges per role
--- - Principle of least privilege
--- - GRANT and REVOKE statements
--- - Password security
 
 USE electronics_store;
 
--- 1. CREATE DATABASE USERS
 
 -- Admin User (Full access for administrative tasks)
 -- Password should be changed in production!
@@ -55,11 +23,6 @@ CREATE USER 'readonly_user'@'localhost' IDENTIFIED BY 'ReadOnly@Secure123!';
 DROP USER IF EXISTS 'backup_user'@'localhost';
 CREATE USER 'backup_user'@'localhost' IDENTIFIED BY 'Backup@Secure123!';
 
--- ========================================
--- 2. GRANT PRIVILEGES - ADMIN USER
--- ========================================
--- Admin user gets full privileges on all tables
-
 GRANT ALL PRIVILEGES ON electronics_store.* TO 'admin_user'@'localhost';
 
 -- Grant ability to create users and manage privileges
@@ -76,11 +39,6 @@ GRANT CREATE VIEW, SHOW VIEW ON electronics_store.* TO 'admin_user'@'localhost';
 
 -- Grant ability to manage indexes
 GRANT INDEX ON electronics_store.* TO 'admin_user'@'localhost';
-
--- ========================================
--- 3. GRANT PRIVILEGES - STAFF USER
--- ========================================
--- Staff user gets limited privileges for operational tasks
 
 -- Read access to most tables
 GRANT SELECT ON electronics_store.* TO 'staff_user'@'localhost';
@@ -112,11 +70,6 @@ GRANT EXECUTE ON PROCEDURE electronics_store.sp_add_stock_to_branch TO 'staff_us
 GRANT EXECUTE ON PROCEDURE electronics_store.sp_adjust_branch_inventory TO 'staff_user'@'localhost';
 GRANT EXECUTE ON PROCEDURE electronics_store.sp_get_low_stock_products TO 'staff_user'@'localhost';
 GRANT EXECUTE ON PROCEDURE electronics_store.sp_get_customer_purchase_history TO 'staff_user'@'localhost';
-
--- ========================================
--- 4. GRANT PRIVILEGES - APPLICATION USER
--- ========================================
--- Application user gets standard CRUD operations
 
 -- Full access to core tables (for application operations)
 GRANT SELECT, INSERT, UPDATE, DELETE ON electronics_store.users TO 'app_user'@'localhost';
@@ -153,10 +106,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON electronics_store.ip_whitelist TO 'app_u
 -- Execute all stored procedures
 GRANT EXECUTE ON electronics_store.* TO 'app_user'@'localhost';
 
--- ========================================
--- 5. GRANT PRIVILEGES - READ-ONLY USER
--- ========================================
--- Read-only user for reporting and analytics
 
 -- Read access to all tables
 GRANT SELECT ON electronics_store.* TO 'readonly_user'@'localhost';
@@ -170,11 +119,6 @@ GRANT EXECUTE ON PROCEDURE electronics_store.sp_get_customer_purchase_history TO
 GRANT EXECUTE ON PROCEDURE electronics_store.sp_get_low_stock_products TO 'readonly_user'@'localhost';
 GRANT EXECUTE ON PROCEDURE electronics_store.sp_search_products_advanced TO 'readonly_user'@'localhost';
 
--- ========================================
--- 6. GRANT PRIVILEGES - BACKUP USER
--- ========================================
--- Backup user for backup operations
-
 -- Read access to all tables (for backup)
 GRANT SELECT, LOCK TABLES ON electronics_store.* TO 'backup_user'@'localhost';
 
@@ -185,37 +129,12 @@ GRANT SELECT, INSERT ON electronics_store.backup_logs TO 'backup_user'@'localhos
 GRANT PROCESS ON *.* TO 'backup_user'@'localhost';
 GRANT RELOAD ON *.* TO 'backup_user'@'localhost';
 
--- ========================================
--- 7. REVOKE PRIVILEGES EXAMPLES
--- ========================================
--- Examples of revoking privileges (for demonstration)
 
--- Example: Revoke DELETE from staff_user on sensitive tables
--- REVOKE DELETE ON electronics_store.users FROM 'staff_user'@'localhost';
--- REVOKE DELETE ON electronics_store.products FROM 'staff_user'@'localhost';
--- REVOKE DELETE ON electronics_store.payments FROM 'staff_user'@'localhost';
-
--- Example: Revoke ALTER from app_user (prevent schema changes)
--- REVOKE ALTER ON electronics_store.* FROM 'app_user'@'localhost';
-
--- ========================================
--- 8. GRANT PRIVILEGES WITH GRANT OPTION
--- ========================================
--- Admin user can grant privileges to others (optional)
 
 -- Allow admin_user to grant privileges to other users
 GRANT ALL PRIVILEGES ON electronics_store.* TO 'admin_user'@'localhost' WITH GRANT OPTION;
 
--- ========================================
--- 9. FLUSH PRIVILEGES
--- ========================================
--- Reload privilege tables
-
 FLUSH PRIVILEGES;
-
--- ========================================
--- 10. VERIFICATION QUERIES
--- ========================================
 
 -- Show all users
 SELECT User, Host FROM mysql.user WHERE User LIKE '%_user';
@@ -237,10 +156,6 @@ SHOW GRANTS FOR 'backup_user'@'localhost';
 
 -- Show current user privileges
 SHOW GRANTS FOR CURRENT_USER();
-
--- ========================================
--- 11. PRIVILEGE MANAGEMENT STORED PROCEDURES
--- ========================================
 
 -- Stored procedure to grant table-level privileges
 DROP PROCEDURE IF EXISTS sp_grant_table_privileges;
@@ -291,10 +206,6 @@ BEGIN
 END$$
 
 DELIMITER ;
-
--- ========================================
--- 12. PRIVILEGE AUDIT VIEW
--- ========================================
 
 -- View to show all user privileges (for auditing)
 CREATE OR REPLACE VIEW v_user_privileges AS
@@ -348,29 +259,6 @@ ORDER BY u.User, db.Db, t.Table_name;
 GRANT SELECT ON electronics_store.v_user_privileges TO 'admin_user'@'localhost';
 
 FLUSH PRIVILEGES;
-
--- ========================================
--- 13. SECURITY BEST PRACTICES
--- ========================================
-
--- Example: Change password for a user
--- ALTER USER 'admin_user'@'localhost' IDENTIFIED BY 'NewSecurePassword123!';
-
--- Example: Lock a user account
--- ALTER USER 'staff_user'@'localhost' ACCOUNT LOCK;
-
--- Example: Unlock a user account
--- ALTER USER 'staff_user'@'localhost' ACCOUNT UNLOCK;
-
--- Example: Set password expiration (90 days)
--- ALTER USER 'app_user'@'localhost' PASSWORD EXPIRE INTERVAL 90 DAY;
-
--- Example: Require password change on first login
--- ALTER USER 'readonly_user'@'localhost' PASSWORD EXPIRE;
-
--- ========================================
--- COMPLETION MESSAGE
--- ========================================
 
 SELECT 'Database users and privileges created successfully!' AS Status;
 SELECT 'Remember to change default passwords in production!' AS Warning;
